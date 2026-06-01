@@ -7,11 +7,9 @@ description: Run Saarthi's end-to-end health check and return a yes/no verdict.
 
 Use for a fast yes/no app-health check.
 
-> **V2 readiness:** not runnable yet — V2 is missing
-> `scripts/bootstrap-worktree.sh` and the `.maestro/` flow suite. The
-> server-start half (`./server.sh`) works today; the simulator + Maestro
-> half does not. Add the bootstrap script and at least one Maestro flow
-> before invoking this skill.
+> **V2 readiness:** partially runnable. `scripts/bootstrap-worktree.sh`
+> exists and `./server.sh` works, but the `.maestro/` flow suite is still
+> missing. Add at least one Maestro flow before invoking this skill end-to-end.
 
 ## Run
 

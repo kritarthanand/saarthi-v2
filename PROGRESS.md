@@ -96,6 +96,16 @@ Listed so you can pull any of these forward when needed. None of these are stubb
   - `meal_guru` and `workout-guru` have no trace in V1 (`skills/`, `.claude/`, or anywhere else).
   - Per your call: skipped for now, listed here so you can decide whether you meant different names.
 
+## Env vars across worktrees
+
+`scripts/bootstrap-worktree.sh` is the entry point for any fresh worktree.
+- Canonical env files live at `${XDG_CONFIG_HOME:-~/.config}/saarthi-v2/{app,server}.env` — outside every worktree.
+- First run seeds them from the repo's `.env.example` templates and exits non-zero asking you to fill in values.
+- Each run symlinks them into the worktree as `.env` and `server/.env`.
+- Re-runs are idempotent. The script refuses to clobber a real (non-symlink) env file — delete it or merge it into the canonical location first.
+
+Rotating a key happens in one place.
+
 ## What's Next (suggested order)
 
 1. **Apply the threads migration.** Review `supabase/migrations/20260531_v2_threads.sql`, then run it against the shared project. Confirm RLS by inserting + selecting as an authenticated user.

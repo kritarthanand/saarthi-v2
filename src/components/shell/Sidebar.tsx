@@ -1,14 +1,15 @@
 import { Pressable, Text, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
-import { TabChatIcon, TabProfileIcon, TabTodayIcon, TabWeekIcon } from '../icons';
+import { TabChatIcon, TabCoachesIcon, TabProfileIcon, TabTodayIcon, TabWeekIcon } from '../icons';
 import { SaarthiLogo } from '../SaarthiLogo';
 
-export type TabId = 'today' | 'week' | 'chat' | 'profile';
+export type TabId = 'today' | 'week' | 'coaches' | 'chat' | 'profile';
 
 const TABS: { id: TabId; label: string; icon: React.FC<{ active: boolean; color: string }> }[] = [
   { id: 'today', label: 'Today', icon: TabTodayIcon },
   { id: 'week', label: 'Week', icon: TabWeekIcon },
+  { id: 'coaches', label: 'Coaches', icon: TabCoachesIcon },
   { id: 'chat', label: 'Chat', icon: TabChatIcon },
   { id: 'profile', label: 'Profile', icon: TabProfileIcon },
 ];

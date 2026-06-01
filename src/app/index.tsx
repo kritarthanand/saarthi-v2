@@ -3,6 +3,8 @@ import { Modal, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatHistoryView } from '@/components/chat/ChatHistoryView';
+import { CoachDetail } from '@/components/coaches/CoachDetail';
+import { CoachesPane } from '@/components/coaches/CoachesPane';
 import { ProfilePane } from '@/components/profile/ProfilePane';
 import { MobileTabBar } from '@/components/shell/MobileTabBar';
 import { PlaceholderView } from '@/components/shell/PlaceholderView';
@@ -12,6 +14,7 @@ import { ThreadDetail } from '@/components/thread/ThreadDetail';
 import { TodayView } from '@/components/today/TodayView';
 import { FloatingMic } from '@/components/voice/FloatingMic';
 import { VoiceSession, type VoiceSavePayload, type VoiceSessionHandle } from '@/components/voice/VoiceSession';
+import { COACHES_BY_ID, type CoachId } from '@/constants/pandavas';
 import { Colors, threadTheme } from '@/constants/theme';
 import type { ChatMessage, Thread } from '@/lib/mockData';
 import { TODAY_THREADS } from '@/lib/mockData';
@@ -39,6 +42,7 @@ export default function AppRoot() {
   const [openThreadId, setOpenThreadId] = useState<string | null>(() =>
     mode === 'phone' ? null : 'morning'
   );
+  const [selectedCoachId, setSelectedCoachId] = useState<CoachId | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
   // Lets the iPad/web backdrop tap delegate to the session's own `finalize` — which
   // saves any captured user lines before closing instead of dropping them.
@@ -150,6 +154,15 @@ export default function AppRoot() {
 
   const openThread = openThreadId ? threadsById[openThreadId] : undefined;
   const activeAccent = openThread ? threadTheme(openThread.tag).color : Colors.accent;
+  const coachDetailOpen = tab === 'coaches' && !!selectedCoachId;
+
+  // Same reset logic for both the phone tab bar and the iPad/web sidebar so
+  // switching tabs never leaves a stale coach detail in the right pane.
+  const handleTabChange = (next: TabId) => {
+    setTab(next);
+    setOpenThreadId(null);
+    setSelectedCoachId(null);
+  };
 
   // ── Phone layout ────────────────────────────────────────────────────────
   if (mode === 'phone') {
@@ -164,6 +177,13 @@ export default function AppRoot() {
         )}
         {tab === 'week' && (
           <PlaceholderView title="Week" subtitle="Trends and stretches across your last 7 days" topInset={phoneTopInset} />
+        )}
+        {tab === 'coaches' && (
+          <CoachesPane
+            selectedCoachId={selectedCoachId}
+            onSelectCoach={setSelectedCoachId}
+            topInset={phoneTopInset}
+          />
         )}
         {tab === 'profile' && <ProfilePane topInset={phoneTopInset} />}
 
@@ -183,23 +203,30 @@ export default function AppRoot() {
           </View>
         )}
 
+        {/* Phone coach detail — full-screen overlay above CoachesPane,
+            mirroring the way ThreadDetail overlays the lists. */}
+        {coachDetailOpen && (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Colors.bg }}>
+            <CoachDetail
+              coach={COACHES_BY_ID[selectedCoachId!]}
+              onClose={() => setSelectedCoachId(null)}
+              topInset={Math.max(insets.top, 12) + 34}
+              bottomInset={Math.max(insets.bottom, 12)}
+            />
+          </View>
+        )}
+
         {/* Floating mic */}
         <FloatingMic
           accent={activeAccent}
           onPress={() => setVoiceOpen(true)}
-          hidden={voiceOpen || !!openThreadId}
+          hidden={voiceOpen || !!openThreadId || coachDetailOpen}
           bottom={96 + Math.max(insets.bottom - 8, 0)}
         />
 
         {/* Bottom tabs */}
-        {!openThreadId && (
-          <MobileTabBar
-            active={tab}
-            onChange={(t) => {
-              setTab(t);
-              setOpenThreadId(null);
-            }}
-          />
+        {!openThreadId && !coachDetailOpen && (
+          <MobileTabBar active={tab} onChange={handleTabChange} />
         )}
 
         {/* Voice modal — `onRequestClose` is required on Android. Without it the system
@@ -232,14 +259,7 @@ export default function AppRoot() {
 
   return (
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: Colors.bg }}>
-      <Sidebar
-        variant={mode}
-        active={tab}
-        onChange={(t) => {
-          setTab(t);
-          setOpenThreadId(null);
-        }}
-      />
+      <Sidebar variant={mode} active={tab} onChange={handleTabChange} />
 
       {/* List pane */}
       <View
@@ -252,10 +272,19 @@ export default function AppRoot() {
         {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
         {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
+        {tab === 'coaches' && (
+          <CoachesPane
+            selectedCoachId={selectedCoachId}
+            onSelectCoach={setSelectedCoachId}
+            topInset={28}
+          />
+        )}
         {tab === 'profile' && <ProfilePane topInset={28} />}
       </View>
 
-      {/* Detail pane — `key` cosmetically remounts; durable state lives in `threadsById`. */}
+      {/* Detail pane — `key` cosmetically remounts; durable state lives in `threadsById`.
+          On the Coaches tab, the detail pane shows the selected coach instead
+          of a thread; thread state and coach selection are independent. */}
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
         {openThread ? (
           <ThreadDetail
@@ -269,6 +298,13 @@ export default function AppRoot() {
             bottomInset={0}
             onClose={() => setOpenThreadId(null)}
             onMic={() => setVoiceOpen(true)}
+          />
+        ) : coachDetailOpen ? (
+          <CoachDetail
+            key={selectedCoachId!}
+            coach={COACHES_BY_ID[selectedCoachId!]}
+            embedded
+            topInset={28}
           />
         ) : (
           <EmptyDetail />

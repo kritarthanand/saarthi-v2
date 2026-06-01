@@ -26,6 +26,7 @@ export const Colors = {
   pink: '#E07AA8',
   pinkDim: 'rgba(224,122,168,0.14)',
   cyan: '#5BC8EF',
+  cyanDim: 'rgba(91,200,239,0.14)',
   gold: '#D9B86E',
 
   warn: '#FF7A2E',

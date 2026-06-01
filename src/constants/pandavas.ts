@@ -11,6 +11,7 @@ export type Sadhana = {
   name: string;
   description: string;
   note?: string;
+  uncertain?: boolean;
 };
 
 export type Celebrate = {
@@ -113,7 +114,8 @@ export const COACHES: Coach[] = [
         name: 'Test + Medication',
         description:
           'Staying on top of regular bloodwork and biomarker testing, plus any prescribed medication or supplementation, so the physical work is data-informed instead of guessed at.',
-        note: 'reading uncertain — could also be "Test + Meditation"',
+        note: 'could also read "Test + Meditation"',
+        uncertain: true,
       },
     ],
     celebrates: [
@@ -126,7 +128,7 @@ export const COACHES: Coach[] = [
     name: 'Arjun',
     domain: 'focus & deep work',
     accent: Colors.cyan,
-    accentDim: 'rgba(91,200,239,0.14)',
+    accentDim: Colors.cyanDim,
     spirit: 'Intellectual Athlete',
     visual: 'Andrej Karpathy',
     visualUncertain: true,

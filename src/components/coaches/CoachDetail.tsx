@@ -3,6 +3,23 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Colors } from '@/constants/theme';
 import type { Coach } from '@/constants/pandavas';
 
+// Coach accents are palette hex today but defensively accept rgb()/rgba() too,
+// so a future palette migration to rgba() can't silently break the border.
+function withAlpha(color: string, alpha: number): string {
+  if (color.startsWith('#') && color.length === 7) {
+    const hex = Math.round(alpha * 255)
+      .toString(16)
+      .padStart(2, '0');
+    return color + hex;
+  }
+  const rgb = color.match(/^rgba?\(([^)]+)\)$/);
+  if (rgb) {
+    const [r, g, b] = rgb[1].split(',').map((s) => s.trim());
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  return color;
+}
+
 function SectionLabel({ children, color }: { children: string; color?: string }) {
   return (
     <Text
@@ -195,6 +212,7 @@ export function CoachDetail({
             >
               <Text style={{ fontSize: 15.5, fontWeight: '700', color: Colors.text }}>
                 {s.name}
+                {s.uncertain ? ' *' : ''}
               </Text>
               {s.note && (
                 <Text
@@ -243,7 +261,7 @@ export function CoachDetail({
                     borderRadius: 999,
                     backgroundColor: coach.accentDim,
                     borderWidth: 1,
-                    borderColor: coach.accent + '55',
+                    borderColor: withAlpha(coach.accent, 0.33),
                   }}
                 >
                   <Text
@@ -330,7 +348,7 @@ export function CoachDetail({
           coach.visualUncertain ||
           coach.skillUncertain ||
           coach.celebrates.some((c) => c.uncertain) ||
-          coach.sadhanas.some((s) => s.note?.startsWith('reading uncertain'))) && (
+          coach.sadhanas.some((s) => s.uncertain)) && (
           <Text
             style={{
               fontSize: 11,

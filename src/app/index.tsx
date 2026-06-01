@@ -154,6 +154,15 @@ export default function AppRoot() {
 
   const openThread = openThreadId ? threadsById[openThreadId] : undefined;
   const activeAccent = openThread ? threadTheme(openThread.tag).color : Colors.accent;
+  const coachDetailOpen = tab === 'coaches' && !!selectedCoachId;
+
+  // Same reset logic for both the phone tab bar and the iPad/web sidebar so
+  // switching tabs never leaves a stale coach detail in the right pane.
+  const handleTabChange = (next: TabId) => {
+    setTab(next);
+    setOpenThreadId(null);
+    setSelectedCoachId(null);
+  };
 
   // ── Phone layout ────────────────────────────────────────────────────────
   if (mode === 'phone') {
@@ -196,10 +205,10 @@ export default function AppRoot() {
 
         {/* Phone coach detail — full-screen overlay above CoachesPane,
             mirroring the way ThreadDetail overlays the lists. */}
-        {tab === 'coaches' && selectedCoachId && (
+        {coachDetailOpen && (
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Colors.bg }}>
             <CoachDetail
-              coach={COACHES_BY_ID[selectedCoachId]}
+              coach={COACHES_BY_ID[selectedCoachId!]}
               onClose={() => setSelectedCoachId(null)}
               topInset={Math.max(insets.top, 12) + 34}
               bottomInset={Math.max(insets.bottom, 12)}
@@ -211,20 +220,13 @@ export default function AppRoot() {
         <FloatingMic
           accent={activeAccent}
           onPress={() => setVoiceOpen(true)}
-          hidden={voiceOpen || !!openThreadId || (tab === 'coaches' && !!selectedCoachId)}
+          hidden={voiceOpen || !!openThreadId || coachDetailOpen}
           bottom={96 + Math.max(insets.bottom - 8, 0)}
         />
 
         {/* Bottom tabs */}
-        {!openThreadId && !(tab === 'coaches' && selectedCoachId) && (
-          <MobileTabBar
-            active={tab}
-            onChange={(t) => {
-              setTab(t);
-              setOpenThreadId(null);
-              setSelectedCoachId(null);
-            }}
-          />
+        {!openThreadId && !coachDetailOpen && (
+          <MobileTabBar active={tab} onChange={handleTabChange} />
         )}
 
         {/* Voice modal — `onRequestClose` is required on Android. Without it the system
@@ -257,14 +259,7 @@ export default function AppRoot() {
 
   return (
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: Colors.bg }}>
-      <Sidebar
-        variant={mode}
-        active={tab}
-        onChange={(t) => {
-          setTab(t);
-          setOpenThreadId(null);
-        }}
-      />
+      <Sidebar variant={mode} active={tab} onChange={handleTabChange} />
 
       {/* List pane */}
       <View
@@ -304,10 +299,10 @@ export default function AppRoot() {
             onClose={() => setOpenThreadId(null)}
             onMic={() => setVoiceOpen(true)}
           />
-        ) : tab === 'coaches' && selectedCoachId ? (
+        ) : coachDetailOpen ? (
           <CoachDetail
-            key={selectedCoachId}
-            coach={COACHES_BY_ID[selectedCoachId]}
+            key={selectedCoachId!}
+            coach={COACHES_BY_ID[selectedCoachId!]}
             embedded
             topInset={28}
           />

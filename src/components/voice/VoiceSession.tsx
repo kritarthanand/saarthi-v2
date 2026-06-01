@@ -1,10 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
 import { SUGGESTED_NEW_TAGS, timeAgoFor, type ChatMessage, type Thread } from '@/lib/mockData';
 import { Hashtag } from '../Hashtag';
-import { MicIcon } from '../icons';
+import { CheckIcon, MicIcon } from '../icons';
 
 const SIM_USER_LINES = [
   'Okay so I want to think out loud for a minute about this week.',
@@ -191,15 +191,18 @@ export const VoiceSession = forwardRef<
     if (partial) scrollRef.current?.scrollToEnd({ animated: false });
   }, [partial]);
 
-  const finalize = () => {
+  // Memoize so the imperative-handle bind below has a stable dep — without this,
+  // `useImperativeHandle` rebinds the `dismiss` method on every render.
+  const finalize = useCallback(() => {
     const userMsgs = messages.filter((m) => m.from === 'me');
     if (userMsgs.length > 0) {
       onSave?.({ tag: hashtag || '#Note', messages, elapsed });
     }
     onClose();
-  };
+  }, [messages, hashtag, elapsed, onSave, onClose]);
 
-  // Expose finalize so the parent (iPad/web backdrop tap) can save instead of dropping content.
+  // Expose finalize so the parent (iPad/web backdrop tap, phone Android back) can save
+  // instead of dropping content.
   useImperativeHandle(ref, () => ({ dismiss: finalize }), [finalize]);
 
   const commitNewTag = () => {
@@ -510,7 +513,14 @@ export const VoiceSession = forwardRef<
           )}
         </View>
         <Pressable
-          onPress={() => (recording ? finalize() : setRecording(true))}
+          accessibilityRole="button"
+          accessibilityLabel={
+            isOver ? 'Save and close' : recording ? 'Stop and save' : 'Resume capture'
+          }
+          // Once the timer's up, the only useful action is save-and-close — the timer
+          // effect immediately flips `recording` back to false on any resume attempt,
+          // so tapping a mic icon here just flickers. Route the tap through `finalize`.
+          onPress={() => (isOver || recording ? finalize() : setRecording(true))}
           style={{
             width: 64, height: 64, borderRadius: 32,
             backgroundColor: isOver ? Colors.danger : isWarn ? Colors.warn : recording ? ringColor : Colors.bgCardElev,
@@ -518,7 +528,9 @@ export const VoiceSession = forwardRef<
             alignItems: 'center', justifyContent: 'center',
           }}
         >
-          {recording ? (
+          {isOver ? (
+            <CheckIcon size={28} color="#fff" />
+          ) : recording ? (
             <View style={{ width: 18, height: 18, backgroundColor: '#fff', borderRadius: 4 }} />
           ) : (
             <MicIcon size={26} color="#fff" />

@@ -26,6 +26,8 @@ export type ChatMessage = {
   text: string;
   time?: string;
   meta?: string;
+  /** Set when the message was sent in the context of a specific item (per-todo composer). */
+  itemRef?: string;
 };
 
 export type Thread = {

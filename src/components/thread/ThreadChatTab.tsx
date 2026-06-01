@@ -33,18 +33,38 @@ export function ThreadChatTab({ thread }: { thread: Thread }) {
             </Text>
           </View>
         ) : (
-          <View
-            key={i}
-            style={{
-              alignSelf: 'flex-end', maxWidth: '78%',
-              backgroundColor: theme.color,
-              paddingVertical: 9, paddingHorizontal: 14,
-              borderRadius: 18, borderBottomRightRadius: 4,
-              gap: 2, alignItems: 'flex-end',
-            }}
-          >
-            <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '500' }}>{m.text}</Text>
-            <Text style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.7)', fontWeight: '500' }}>{timeLabel}</Text>
+          <View key={i} style={{ alignSelf: 'flex-end', maxWidth: '78%', gap: 4, alignItems: 'flex-end' }}>
+            {m.itemRef && (
+              <View
+                style={{
+                  paddingVertical: 2, paddingHorizontal: 8,
+                  borderRadius: 999,
+                  backgroundColor: theme.dim,
+                  maxWidth: '100%',
+                }}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    fontSize: 10.5, color: theme.color, fontWeight: '700',
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  re: {m.itemRef}
+                </Text>
+              </View>
+            )}
+            <View
+              style={{
+                backgroundColor: theme.color,
+                paddingVertical: 9, paddingHorizontal: 14,
+                borderRadius: 18, borderBottomRightRadius: 4,
+                gap: 2, alignItems: 'flex-end',
+              }}
+            >
+              <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '500' }}>{m.text}</Text>
+              <Text style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.7)', fontWeight: '500' }}>{timeLabel}</Text>
+            </View>
           </View>
         );
       })}

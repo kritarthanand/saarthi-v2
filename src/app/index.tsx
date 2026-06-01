@@ -92,7 +92,10 @@ export default function AppRoot() {
 
   const handleItemMessage = useCallback(
     (threadId: string, itemLabel: string, text: string) => {
-      appendMessage(threadId, { from: 'me', text: `[${itemLabel}] ${text}`, time: fmtTime() });
+      // Keep `text` as the raw user input; `itemRef` carries the context so the chat
+      // renderer can show a small "re: <label>" chip above the bubble instead of
+      // embedding the label inside the message body.
+      appendMessage(threadId, { from: 'me', text, time: fmtTime(), itemRef: itemLabel });
     },
     [appendMessage]
   );

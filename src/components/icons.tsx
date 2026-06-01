@@ -78,6 +78,24 @@ export const TabWeekIcon = ({ active, color }: TabIconProps) => (
   </Svg>
 );
 
+export const TabCoachesIcon = ({ active, color }: TabIconProps) => (
+  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+    {/* Five stylized figures — one per Pandava brother. The middle figure is
+        taller so the row reads as a group rather than evenly-spaced ticks. */}
+    <Circle cx={4.5} cy={9} r={1.7} stroke={color} strokeWidth={active ? 2.2 : 1.8} fill={active ? color : 'none'} fillOpacity={active ? 0.18 : 0} />
+    <Circle cx={9} cy={7.5} r={1.9} stroke={color} strokeWidth={active ? 2.2 : 1.8} fill={active ? color : 'none'} fillOpacity={active ? 0.18 : 0} />
+    <Circle cx={13.5} cy={6.5} r={2.1} stroke={color} strokeWidth={active ? 2.2 : 1.8} fill={active ? color : 'none'} fillOpacity={active ? 0.18 : 0} />
+    <Circle cx={18} cy={7.5} r={1.9} stroke={color} strokeWidth={active ? 2.2 : 1.8} fill={active ? color : 'none'} fillOpacity={active ? 0.18 : 0} />
+    <Path
+      d="M2.5 20c.5-2.3 1.8-3.7 4-3.7M6.5 20c.5-2.9 2.2-4.6 4.5-4.6M11 20c.5-3.3 2.6-5.2 5.5-5.2M15.5 20c.5-2.9 2.2-4.6 4.5-4.6"
+      stroke={color}
+      strokeWidth={active ? 2.2 : 1.8}
+      strokeLinecap="round"
+      fill="none"
+    />
+  </Svg>
+);
+
 export const TabProfileIcon = ({ active, color }: TabIconProps) => (
   <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
     <Circle cx={12} cy={8.5} r={3.5} stroke={color} strokeWidth={active ? 2.2 : 1.8} fill={active ? color : 'none'} fillOpacity={active ? 0.18 : 0} />

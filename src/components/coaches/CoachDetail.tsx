@@ -1,0 +1,348 @@
+import { Pressable, ScrollView, Text, View } from 'react-native';
+
+import { Colors } from '@/constants/theme';
+import type { Coach } from '@/constants/pandavas';
+
+function SectionLabel({ children, color }: { children: string; color?: string }) {
+  return (
+    <Text
+      style={{
+        fontSize: 11,
+        color: color ?? Colors.textFaint,
+        fontWeight: '700',
+        letterSpacing: 1.1,
+        textTransform: 'uppercase',
+        marginBottom: 10,
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+export function CoachDetail({
+  coach,
+  embedded = false,
+  topInset = 52,
+  bottomInset = 0,
+  onClose,
+}: {
+  coach: Coach;
+  // `embedded` = rendered inside the iPad/web detail pane (no back button, no
+  // top safe-area padding handled by us). Phone mode is full-screen overlay.
+  embedded?: boolean;
+  topInset?: number;
+  bottomInset?: number;
+  onClose?: () => void;
+}) {
+  return (
+    <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+      {/* Header band — coach's accent color tints the top so each brother
+          has a clear identity even though the rest of the chrome is shared. */}
+      <View
+        style={{
+          paddingTop: topInset,
+          paddingHorizontal: 20,
+          paddingBottom: 20,
+          backgroundColor: coach.accentDim,
+          borderBottomColor: Colors.border,
+          borderBottomWidth: 1,
+        }}
+      >
+        {!embedded && onClose && (
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={12}
+            style={{ alignSelf: 'flex-start', marginBottom: 8 }}
+          >
+            <Text style={{ color: coach.accent, fontSize: 15, fontWeight: '600' }}>← Back</Text>
+          </Pressable>
+        )}
+
+        <Text
+          style={{
+            fontSize: 34,
+            fontWeight: '800',
+            color: coach.accent,
+            letterSpacing: -0.6,
+          }}
+        >
+          {coach.name}
+        </Text>
+        <Text
+          style={{
+            fontSize: 13.5,
+            color: Colors.textDim,
+            marginTop: 4,
+            fontStyle: 'italic',
+          }}
+        >
+          {coach.domain}
+        </Text>
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: 22,
+          paddingBottom: 40 + bottomInset,
+        }}
+      >
+        {/* ── Code Name ───────────────────────────────────────────── */}
+        <SectionLabel color={coach.accent}>Code Name</SectionLabel>
+        <View
+          style={{
+            borderRadius: 14,
+            backgroundColor: Colors.bgCard,
+            padding: 16,
+            borderWidth: 1,
+            borderColor: Colors.border,
+            marginBottom: 22,
+            gap: 14,
+          }}
+        >
+          <View>
+            <Text
+              style={{
+                fontSize: 10.5,
+                color: Colors.textFaint,
+                fontWeight: '700',
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                marginBottom: 4,
+              }}
+            >
+              Spirit
+            </Text>
+            <Text style={{ fontSize: 18, color: Colors.text, fontWeight: '600' }}>
+              {coach.spirit}
+              {coach.spiritUncertain ? ' *' : ''}
+            </Text>
+            {coach.spiritGloss && (
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: Colors.textDim,
+                  marginTop: 2,
+                  fontStyle: 'italic',
+                }}
+              >
+                {coach.spiritGloss}
+              </Text>
+            )}
+          </View>
+
+          <View
+            style={{
+              height: 1,
+              backgroundColor: Colors.border,
+            }}
+          />
+
+          <View>
+            <Text
+              style={{
+                fontSize: 10.5,
+                color: Colors.textFaint,
+                fontWeight: '700',
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                marginBottom: 4,
+              }}
+            >
+              Visual Personification
+            </Text>
+            <Text style={{ fontSize: 18, color: Colors.text, fontWeight: '600' }}>
+              {coach.visual}
+              {coach.visualUncertain ? ' *' : ''}
+            </Text>
+            <Text
+              style={{
+                fontSize: 12,
+                color: Colors.textFaint,
+                marginTop: 4,
+                fontStyle: 'italic',
+              }}
+            >
+              image WIP — finding a visual
+            </Text>
+          </View>
+        </View>
+
+        {/* ── Sadhanas ────────────────────────────────────────────── */}
+        <SectionLabel color={Colors.green}>Sadhanas</SectionLabel>
+        <View style={{ gap: 10, marginBottom: 22 }}>
+          {coach.sadhanas.map((s) => (
+            <View
+              key={s.name}
+              style={{
+                borderRadius: 14,
+                backgroundColor: Colors.bgCard,
+                borderLeftWidth: 3,
+                borderLeftColor: coach.accent,
+                borderTopWidth: 1,
+                borderRightWidth: 1,
+                borderBottomWidth: 1,
+                borderTopColor: Colors.border,
+                borderRightColor: Colors.border,
+                borderBottomColor: Colors.border,
+                paddingVertical: 13,
+                paddingHorizontal: 14,
+              }}
+            >
+              <Text style={{ fontSize: 15.5, fontWeight: '700', color: Colors.text }}>
+                {s.name}
+              </Text>
+              {s.note && (
+                <Text
+                  style={{
+                    fontSize: 11.5,
+                    color: coach.accent,
+                    marginTop: 2,
+                    fontStyle: 'italic',
+                  }}
+                >
+                  {s.note}
+                </Text>
+              )}
+              <Text
+                style={{
+                  fontSize: 13.5,
+                  color: Colors.textDim,
+                  marginTop: 6,
+                  lineHeight: 20,
+                }}
+              >
+                {s.description}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* ── Celebrates ──────────────────────────────────────────── */}
+        {coach.celebrates.length > 0 && (
+          <>
+            <SectionLabel color={Colors.green}>Celebrates</SectionLabel>
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 8,
+                marginBottom: 22,
+              }}
+            >
+              {coach.celebrates.map((c) => (
+                <View
+                  key={c.name}
+                  style={{
+                    paddingVertical: 7,
+                    paddingHorizontal: 12,
+                    borderRadius: 999,
+                    backgroundColor: coach.accentDim,
+                    borderWidth: 1,
+                    borderColor: coach.accent + '55',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: coach.accent,
+                      fontWeight: '600',
+                      fontFamily: c.formula ? 'Courier' : undefined,
+                    }}
+                  >
+                    {c.name}
+                    {c.uncertain ? ' *' : ''}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* ── Skill + Tool ────────────────────────────────────────── */}
+        {(coach.skill || coach.tool) && (
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 8 }}>
+            {coach.skill && (
+              <View
+                style={{
+                  flex: 1,
+                  borderRadius: 14,
+                  backgroundColor: Colors.bgCard,
+                  borderWidth: 1,
+                  borderColor: Colors.border,
+                  padding: 14,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 10.5,
+                    color: Colors.textFaint,
+                    fontWeight: '700',
+                    letterSpacing: 1,
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                  }}
+                >
+                  Skill
+                </Text>
+                <Text style={{ fontSize: 15, color: Colors.text, fontWeight: '600' }}>
+                  {coach.skill}
+                  {coach.skillUncertain ? ' *' : ''}
+                </Text>
+              </View>
+            )}
+            {coach.tool && (
+              <View
+                style={{
+                  flex: 1,
+                  borderRadius: 14,
+                  backgroundColor: Colors.bgCard,
+                  borderWidth: 1,
+                  borderColor: Colors.border,
+                  padding: 14,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 10.5,
+                    color: Colors.textFaint,
+                    fontWeight: '700',
+                    letterSpacing: 1,
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                  }}
+                >
+                  Tool
+                </Text>
+                <Text style={{ fontSize: 15, color: Colors.text, fontWeight: '600' }}>
+                  {coach.tool}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {(coach.spiritUncertain ||
+          coach.visualUncertain ||
+          coach.skillUncertain ||
+          coach.celebrates.some((c) => c.uncertain) ||
+          coach.sadhanas.some((s) => s.note?.startsWith('reading uncertain'))) && (
+          <Text
+            style={{
+              fontSize: 11,
+              color: Colors.textFaint,
+              marginTop: 14,
+              fontStyle: 'italic',
+            }}
+          >
+            * transcribed from the glass-board photos — readings to confirm.
+          </Text>
+        )}
+      </ScrollView>
+    </View>
+  );
+}

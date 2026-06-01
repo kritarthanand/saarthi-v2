@@ -2,12 +2,13 @@ import { Fragment } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { timeAgoFor, type Thread } from '@/lib/mockData';
+import { livePoints, timeAgoFor, type Thread } from '@/lib/mockData';
 import { Hashtag } from '../Hashtag';
 
 function MorningPreview({ thread }: { thread: Thread }) {
   const theme = threadTheme(thread.tag);
-  const pct = thread.pointsTotal ? thread.pointsEarned / thread.pointsTotal : 0;
+  const { earned, total } = livePoints(thread);
+  const pct = total ? earned / total : 0;
   return (
     <View style={{ gap: 10 }}>
       {thread.mantra && (
@@ -177,6 +178,7 @@ function renderPreview(thread: Thread) {
 
 export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: (id: string) => void }) {
   const theme = threadTheme(thread.tag);
+  const { earned, total } = livePoints(thread);
   // Locked threads are pre-unlock affordances (e.g. #EveningReview before 8 PM). Disable the
   // press so we don't land on a hard-coded summary that's clearly stale for a locked context.
   const disabled = !!thread.locked;
@@ -209,8 +211,8 @@ export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: (id: st
           }}
         >
           <Text style={{ fontSize: 12, fontWeight: '700', color: theme.color }}>
-            {thread.pointsEarned}
-            <Text style={{ opacity: 0.5 }}>/{thread.pointsTotal}</Text>
+            {earned}
+            <Text style={{ opacity: 0.5 }}>/{total}</Text>
           </Text>
         </View>
       </View>

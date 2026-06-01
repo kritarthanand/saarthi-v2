@@ -67,9 +67,48 @@ export function timeAgoFor(thread: Thread): string {
   return thread.createdAt != null ? formatRelative(thread.createdAt) : thread.timeAgo;
 }
 
+/**
+ * Live points totals derived from the thread's current items. Anything that displays
+ * progress should use this — the seed `pointsEarned` / `pointsTotal` on `Thread` is
+ * just the initial snapshot and never updates when the user toggles a checkbox.
+ */
+export function livePoints(thread: Thread): { earned: number; total: number } {
+  // Only derive from items when at least one of them exposes a `points` value, so
+  // kinds without per-item points (notes, etc.) fall back to the seed totals.
+  const itemsHavePoints = thread.items.some((i) => i.points != null);
+  if (!itemsHavePoints) {
+    return { earned: thread.pointsEarned, total: thread.pointsTotal };
+  }
+  const earned = thread.items
+    .filter((i) => i.done)
+    .reduce((s, i) => s + (i.points ?? 0), 0);
+  const total = thread.items.reduce((s, i) => s + (i.points ?? 0), 0);
+  return { earned, total };
+}
+
+/**
+ * Chat-message count for a thread, mirroring what `ThreadDetail`'s tab badge shows.
+ * Notes count only user turns (matching the voice screen's "thoughts captured"); other
+ * threads count seeded + appended turns.
+ */
+export function liveMessageCount(
+  thread: Thread,
+  threadChats: Record<string, ChatMessage[]>,
+): number {
+  if (thread.kind === 'note') {
+    const fromMessages = (thread.messages || []).filter((m) => m.from === 'me').length;
+    const fromAppended = (thread.appendedMessages || []).filter((m) => m.from === 'me').length;
+    return fromMessages + fromAppended;
+  }
+  return (threadChats[thread.id] || []).length + (thread.appendedMessages?.length || 0);
+}
+
 export function subtitleFor(thread: Thread): string {
   if (thread.kind === 'note' && thread.createdAt != null) {
-    const count = (thread.messages || []).filter((m) => m.from === 'me').length;
+    // Roll the live user-turn count into the subtitle so Composer appends bump it too.
+    const count =
+      (thread.messages || []).filter((m) => m.from === 'me').length +
+      (thread.appendedMessages || []).filter((m) => m.from === 'me').length;
     return `${count} thoughts · ${formatRelative(thread.createdAt)}`;
   }
   return thread.subtitle;

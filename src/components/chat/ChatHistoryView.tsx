@@ -1,8 +1,14 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { HISTORY_DAYS, THREAD_CHATS, type HistoryDay, type Thread } from '@/lib/mockData';
+import {
+  HISTORY_DAYS,
+  liveMessageCount,
+  THREAD_CHATS,
+  type HistoryDay,
+  type Thread,
+} from '@/lib/mockData';
 import { AppHeader } from '../AppHeader';
 import { ChevRightIcon } from '../icons';
 
@@ -24,6 +30,17 @@ export function ChatHistoryView({
     setCount((c) => Math.min(c + 2, HISTORY_DAYS.length));
   }, []);
 
+  // Mirror VoiceSession.pickerThreads: drop locked threads (they aren't openable)
+  // and dedupe by tag so two `#FocusAndToDo`s don't render as identical chips.
+  const activeThreads = useMemo(() => {
+    const seen = new Map<string, Thread>();
+    for (const t of threads) {
+      if (t.locked) continue;
+      if (!seen.has(t.tag)) seen.set(t.tag, t);
+    }
+    return [...seen.values()];
+  }, [threads]);
+
   const renderHeader = () => (
     <View>
       <AppHeader title="Chat" right="all threads" topInset={topInset} />
@@ -43,8 +60,9 @@ export function ChatHistoryView({
           contentContainerStyle={{ gap: 8 }}
           keyboardShouldPersistTaps="handled"
         >
-          {threads.map((t) => {
+          {activeThreads.map((t) => {
             const theme = threadTheme(t.tag);
+            const messageCount = liveMessageCount(t, THREAD_CHATS);
             return (
               <Pressable
                 key={t.id}
@@ -60,7 +78,7 @@ export function ChatHistoryView({
               >
                 <Text style={{ fontSize: 13, color: theme.color, fontWeight: '700' }}>{t.tag}</Text>
                 <Text style={{ fontSize: 10.5, color: Colors.textDim, fontWeight: '500' }}>
-                  {(THREAD_CHATS[t.id] || []).length} messages
+                  {messageCount} {messageCount === 1 ? 'message' : 'messages'}
                 </Text>
               </Pressable>
             );

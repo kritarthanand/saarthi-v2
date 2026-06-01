@@ -20,6 +20,10 @@ export function FocusSummary({
   const remaining = thread.items.filter((i) => !i.done).length;
   const doneCount = thread.items.length - remaining;
   const scheduledItems = thread.items.filter((i) => !!i.scheduled);
+  // `+99` ≈ 60% alpha — desaturates the theme accent so med priority sits visually
+  // under high without dragging in a different hue (the prototype's blue was a
+  // copy-paste leftover that ignored non-blue themes like workout/food).
+  const medColor = theme.color + '99';
   const scheduledRows = scheduledItems.slice(0, 3).map((i) => ({
     time: i.scheduled!,
     label: i.label,
@@ -27,7 +31,7 @@ export function FocusSummary({
       i.priority === 'high'
         ? theme.color
         : i.priority === 'med'
-          ? 'rgba(91,141,239,0.6)'
+          ? medColor
           : Colors.textFaint,
   }));
 
@@ -115,8 +119,9 @@ function FocusTodo({
     onSend(trimmed);
     setDraft('');
   };
+  // Same med-color logic as the hero bar — keep them in sync visually across themes.
   const priorityColor =
-    item.priority === 'high' ? theme.color : item.priority === 'med' ? Colors.cyan : Colors.textFaint;
+    item.priority === 'high' ? theme.color : item.priority === 'med' ? theme.color + '99' : Colors.textFaint;
 
   return (
     <View

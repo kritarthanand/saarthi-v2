@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { subtitleFor, THREAD_CHATS, type Thread } from '@/lib/mockData';
+import { liveMessageCount, subtitleFor, THREAD_CHATS, type Thread } from '@/lib/mockData';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
 import { BackIcon, DotsIcon } from '../icons';
@@ -37,15 +37,8 @@ export function ThreadDetail({
   const [tab, setTab] = useState<'summary' | 'chat'>('summary');
   const theme = threadTheme(thread.tag);
 
-  // For notes, count only user-captured turns so the badge matches the "X thoughts
-  // captured" the user just saw on the voice screen (AI sim lines also live in
-  // `messages` but aren't "thoughts").
-  const chatBase = thread.kind === 'note' ? thread.messages || [] : THREAD_CHATS[thread.id] || [];
-  const chatCount =
-    thread.kind === 'note'
-      ? chatBase.filter((m) => m.from === 'me').length +
-        (thread.appendedMessages?.filter((m) => m.from === 'me').length || 0)
-      : chatBase.length + (thread.appendedMessages?.length || 0);
+  // Shared with ChatHistoryView's active-strip count so the two surfaces never drift.
+  const chatCount = liveMessageCount(thread, THREAD_CHATS);
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>

@@ -2,7 +2,7 @@ import { Pressable, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import type { Thread, ThreadItem } from '@/lib/mockData';
+import { livePoints, type Thread, type ThreadItem } from '@/lib/mockData';
 import { Checkbox } from '../Checkbox';
 import { FlameIcon } from '../icons';
 
@@ -20,10 +20,7 @@ export function MorningSummary({
   const remaining = thread.items.length - done;
   // Derive points + copy from the live `items` so they track the ring rather than
   // showing stale "32 of 46 / Two left" the instant the user ticks something.
-  const pointsEarned = thread.items
-    .filter((i) => i.done)
-    .reduce((s, i) => s + (i.points ?? 0), 0);
-  const pointsTotal = thread.items.reduce((s, i) => s + (i.points ?? 0), 0);
+  const { earned: pointsEarned, total: pointsTotal } = livePoints(thread);
   const heroCopy =
     remaining === 0
       ? 'All clear. Streak holds.'

@@ -26,6 +26,10 @@ module.exports = {
         purple: { DEFAULT: '#8B7BD9' },
         pink: { DEFAULT: '#E07AA8' },
         gold: { DEFAULT: '#D9B86E' },
+        danger: {
+          DEFAULT: '#FF4D4D',
+          dim: 'rgba(255,77,77,0.14)',
+        },
         line: {
           DEFAULT: 'rgba(255,255,255,0.06)',
           strong: 'rgba(255,255,255,0.10)',

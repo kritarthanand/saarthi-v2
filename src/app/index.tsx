@@ -3,6 +3,7 @@ import { Modal, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatHistoryView } from '@/components/chat/ChatHistoryView';
+import { ProfilePane } from '@/components/profile/ProfilePane';
 import { MobileTabBar } from '@/components/shell/MobileTabBar';
 import { PlaceholderView } from '@/components/shell/PlaceholderView';
 import { Sidebar, type TabId } from '@/components/shell/Sidebar';
@@ -164,9 +165,7 @@ export default function AppRoot() {
         {tab === 'week' && (
           <PlaceholderView title="Week" subtitle="Trends and stretches across your last 7 days" topInset={phoneTopInset} />
         )}
-        {tab === 'profile' && (
-          <PlaceholderView title="Profile" subtitle="Settings, integrations, your Saarthi character" topInset={phoneTopInset} />
-        )}
+        {tab === 'profile' && <ProfilePane topInset={phoneTopInset} />}
 
         {/* Pushed Thread Detail */}
         {openThread && (
@@ -246,9 +245,7 @@ export default function AppRoot() {
         {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
         {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
-        {tab === 'profile' && (
-          <PlaceholderView title="Profile" subtitle="Settings & your Saarthi character" topInset={28} />
-        )}
+        {tab === 'profile' && <ProfilePane topInset={28} />}
       </View>
 
       {/* Detail pane — `key` cosmetically remounts; durable state lives in `threadsById`. */}

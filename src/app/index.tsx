@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Modal, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,7 +12,7 @@ import { TodayView } from '@/components/today/TodayView';
 import { FloatingMic } from '@/components/voice/FloatingMic';
 import { VoiceSession, type VoiceSavePayload } from '@/components/voice/VoiceSession';
 import { Colors, threadTheme } from '@/constants/theme';
-import type { Thread } from '@/lib/mockData';
+import type { ChatMessage, Thread } from '@/lib/mockData';
 import { TODAY_THREADS } from '@/lib/mockData';
 
 type DeviceMode = 'phone' | 'ipad' | 'web';
@@ -22,6 +22,9 @@ function detectMode(width: number): DeviceMode {
   if (width >= 820) return 'ipad';
   return 'phone';
 }
+
+const fmtTime = () =>
+  new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 export default function AppRoot() {
   const { width } = useWindowDimensions();
@@ -36,7 +39,60 @@ export default function AppRoot() {
     mode === 'phone' ? null : 'morning'
   );
   const [voiceOpen, setVoiceOpen] = useState(false);
-  const [customThreads, setCustomThreads] = useState<Thread[]>([]);
+
+  // Canonical thread store — toggled items + sent messages live here so they survive
+  // the ThreadDetail remount that `key={openThreadId}` forces in the master-detail view.
+  const [threadsById, setThreadsById] = useState<Record<string, Thread>>(() =>
+    Object.fromEntries(TODAY_THREADS.map((t) => [t.id, t]))
+  );
+  const [threadOrder, setThreadOrder] = useState<string[]>(() => TODAY_THREADS.map((t) => t.id));
+
+  const threads = useMemo(
+    () => threadOrder.map((id) => threadsById[id]).filter((t): t is Thread => !!t),
+    [threadOrder, threadsById]
+  );
+
+  const toggleItem = useCallback((threadId: string, itemId: string) => {
+    setThreadsById((prev) => {
+      const t = prev[threadId];
+      if (!t) return prev;
+      return {
+        ...prev,
+        [threadId]: {
+          ...t,
+          items: t.items.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)),
+        },
+      };
+    });
+  }, []);
+
+  const appendMessage = useCallback((threadId: string, msg: ChatMessage) => {
+    setThreadsById((prev) => {
+      const t = prev[threadId];
+      if (!t) return prev;
+      return {
+        ...prev,
+        [threadId]: {
+          ...t,
+          appendedMessages: [...(t.appendedMessages || []), msg],
+        },
+      };
+    });
+  }, []);
+
+  const handleSendMessage = useCallback(
+    (threadId: string, text: string) => {
+      appendMessage(threadId, { from: 'me', text, time: fmtTime() });
+    },
+    [appendMessage]
+  );
+
+  const handleItemMessage = useCallback(
+    (threadId: string, itemLabel: string, text: string) => {
+      appendMessage(threadId, { from: 'me', text: `[${itemLabel}] ${text}`, time: fmtTime() });
+    },
+    [appendMessage]
+  );
 
   const handleSave = ({ tag, messages, elapsed }: VoiceSavePayload) => {
     const userMsgs = messages.filter((m) => m.from === 'me');
@@ -49,43 +105,45 @@ export default function AppRoot() {
       pointsEarned: 0, pointsTotal: 0,
       preview: userMsgs.slice(0, 2).map((m) => m.text),
     };
-    // All three updates batch into one render — no setTimeout means no unmount-leak window
-    // and no race where reopening voice would pop a thread underneath the modal.
-    setCustomThreads((prev) => [newThread, ...prev]);
+    setThreadsById((prev) => ({ ...prev, [id]: newThread }));
+    setThreadOrder((prev) => [id, ...prev]);
     setTab('today');
     setOpenThreadId(id);
   };
 
-  const activeAccent = openThreadId
-    ? threadTheme(
-        [...TODAY_THREADS, ...customThreads].find((t) => t.id === openThreadId)?.tag || '#MorningRitual'
-      ).color
-    : Colors.accent;
+  const openThread = openThreadId ? threadsById[openThreadId] : undefined;
+  const activeAccent = openThread ? threadTheme(openThread.tag).color : Colors.accent;
 
   // ── Phone layout ────────────────────────────────────────────────────────
   if (mode === 'phone') {
+    const phoneTopInset = Math.max(insets.top, 12) + 36;
     return (
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
         {tab === 'today' && (
-          <TodayView onOpenThread={setOpenThreadId} customThreads={customThreads} topInset={Math.max(insets.top, 12) + 36} />
+          <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
         )}
-        {tab === 'chat' && <ChatHistoryView onOpenThread={setOpenThreadId} topInset={Math.max(insets.top, 12) + 36} />}
+        {tab === 'chat' && (
+          <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
+        )}
         {tab === 'week' && (
-          <PlaceholderView title="Week" subtitle="Trends and stretches across your last 7 days" topInset={Math.max(insets.top, 12) + 36} />
+          <PlaceholderView title="Week" subtitle="Trends and stretches across your last 7 days" topInset={phoneTopInset} />
         )}
         {tab === 'profile' && (
-          <PlaceholderView title="Profile" subtitle="Settings, integrations, your Saarthi character" topInset={Math.max(insets.top, 12) + 36} />
+          <PlaceholderView title="Profile" subtitle="Settings, integrations, your Saarthi character" topInset={phoneTopInset} />
         )}
 
         {/* Pushed Thread Detail */}
-        {openThreadId && (
+        {openThread && (
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Colors.bg }}>
             <ThreadDetail
-              threadId={openThreadId}
-              customThreads={customThreads}
+              thread={openThread}
+              onToggleItem={(itemId) => toggleItem(openThread.id, itemId)}
+              onSendMessage={(text) => handleSendMessage(openThread.id, text)}
+              onItemMessage={(itemLabel, text) => handleItemMessage(openThread.id, itemLabel, text)}
               onClose={() => setOpenThreadId(null)}
               onMic={() => setVoiceOpen(true)}
               topInset={Math.max(insets.top, 12) + 34}
+              bottomInset={Math.max(insets.bottom, 12)}
             />
           </View>
         )}
@@ -116,7 +174,7 @@ export default function AppRoot() {
               accent={activeAccent}
               maxSeconds={120}
               warnSeconds={30}
-              existingThreads={[...TODAY_THREADS, ...customThreads]}
+              existingThreads={threads}
               onSave={handleSave}
               onClose={() => setVoiceOpen(false)}
               topInset={Math.max(insets.top, 12) + 34}
@@ -142,25 +200,26 @@ export default function AppRoot() {
           overflow: 'hidden', backgroundColor: Colors.bg,
         }}
       >
-        {tab === 'today' && (
-          <TodayView onOpenThread={setOpenThreadId} customThreads={customThreads} topInset={28} />
-        )}
-        {tab === 'chat' && <ChatHistoryView onOpenThread={setOpenThreadId} topInset={28} />}
+        {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
+        {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
         {tab === 'profile' && (
           <PlaceholderView title="Profile" subtitle="Settings & your Saarthi character" topInset={28} />
         )}
       </View>
 
-      {/* Detail pane */}
+      {/* Detail pane — `key` cosmetically remounts; durable state lives in `threadsById`. */}
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-        {openThreadId ? (
+        {openThread ? (
           <ThreadDetail
-            key={openThreadId}
-            threadId={openThreadId}
-            customThreads={customThreads}
+            key={openThread.id}
+            thread={openThread}
+            onToggleItem={(itemId) => toggleItem(openThread.id, itemId)}
+            onSendMessage={(text) => handleSendMessage(openThread.id, text)}
+            onItemMessage={(itemLabel, text) => handleItemMessage(openThread.id, itemLabel, text)}
             embedded
             topInset={20}
+            bottomInset={0}
             onClose={() => setOpenThreadId(null)}
             onMic={() => setVoiceOpen(true)}
           />
@@ -195,7 +254,7 @@ export default function AppRoot() {
               accent={activeAccent}
               maxSeconds={120}
               warnSeconds={30}
-              existingThreads={[...TODAY_THREADS, ...customThreads]}
+              existingThreads={threads}
               onSave={handleSave}
               onClose={() => setVoiceOpen(false)}
               topInset={28}

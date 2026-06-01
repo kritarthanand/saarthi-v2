@@ -21,8 +21,9 @@ export function Composer({
 }) {
   const [val, setVal] = useState('');
   const send = () => {
-    if (!val.trim()) return;
-    onSend?.(val);
+    const trimmed = val.trim();
+    if (!trimmed || !onSend) return;
+    onSend(trimmed);
     setVal('');
   };
   return (

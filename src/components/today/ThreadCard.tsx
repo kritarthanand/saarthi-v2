@@ -177,9 +177,13 @@ function renderPreview(thread: Thread) {
 
 export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: (id: string) => void }) {
   const theme = threadTheme(thread.tag);
+  // Locked threads are pre-unlock affordances (e.g. #EveningReview before 8 PM). Disable the
+  // press so we don't land on a hard-coded summary that's clearly stale for a locked context.
+  const disabled = !!thread.locked;
   return (
     <Pressable
-      onPress={() => onOpen(thread.id)}
+      onPress={disabled ? undefined : () => onOpen(thread.id)}
+      disabled={disabled}
       style={{
         backgroundColor: Colors.bgCard,
         borderColor: Colors.border,
@@ -188,7 +192,7 @@ export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: (id: st
         padding: 14,
         paddingHorizontal: 16,
         gap: 10,
-        opacity: thread.locked ? 0.6 : 1,
+        opacity: disabled ? 0.6 : 1,
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

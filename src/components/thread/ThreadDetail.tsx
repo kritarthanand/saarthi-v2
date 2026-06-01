@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { THREAD_CHATS, TODAY_THREADS, type Thread } from '@/lib/mockData';
+import { THREAD_CHATS, type Thread } from '@/lib/mockData';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
 import { BackIcon, DotsIcon } from '../icons';
@@ -12,73 +12,33 @@ import { MorningSummary } from './MorningSummary';
 import { NoteSummary } from './NoteSummary';
 import { ThreadChatTab } from './ThreadChatTab';
 
-function renderSummary(thread: Thread, toggleItem: (id: string) => void, openChat: () => void) {
-  switch (thread.kind) {
-    case 'checklist':
-      return <MorningSummary thread={thread} onItemToggle={toggleItem} onItemChat={openChat} />;
-    case 'focus':
-    case 'focus-title':
-    case 'workout':
-    case 'food':
-    case 'evening':
-    case 'fitness':
-      // Fitness/evening reuse the focus layout until they get bespoke summaries — the prototype's
-      // FitnessSummary (activity rings, metric grid) isn't ported in this PR.
-      return <FocusSummary thread={thread} onItemToggle={toggleItem} />;
-    case 'note':
-      return <NoteSummary thread={thread} />;
-    default: {
-      const _exhaustive: never = thread.kind;
-      return null;
-    }
-  }
-}
-
 export function ThreadDetail({
-  threadId,
-  customThreads = [],
+  thread,
+  onToggleItem,
+  onSendMessage,
+  onItemMessage,
   onClose,
   onMic,
   topInset = 50,
+  /** Pixels reserved below the composer (safe-area home indicator); 0 in embedded panes. */
+  bottomInset = 0,
   embedded = false,
 }: {
-  threadId: string;
-  customThreads?: Thread[];
+  thread: Thread;
+  onToggleItem: (itemId: string) => void;
+  onSendMessage: (text: string) => void;
+  onItemMessage: (itemLabel: string, text: string) => void;
   onClose: () => void;
   onMic: () => void;
   topInset?: number;
+  bottomInset?: number;
   embedded?: boolean;
 }) {
-  const initial = useMemo(() => {
-    return [...TODAY_THREADS, ...customThreads].find((t) => t.id === threadId);
-  }, [threadId, customThreads]);
-
-  const [thread, setThread] = useState<Thread | undefined>(initial);
   const [tab, setTab] = useState<'summary' | 'chat'>('summary');
-
-  if (!thread) {
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: Colors.textDim }}>Thread not found</Text>
-      </View>
-    );
-  }
-
   const theme = threadTheme(thread.tag);
 
-  const toggleItem = (itemId: string) => {
-    setThread((prev) =>
-      prev
-        ? {
-            ...prev,
-            items: prev.items.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)),
-          }
-        : prev
-    );
-  };
-
-  const chatCount =
-    thread.kind === 'note' ? (thread.messages || []).length : (THREAD_CHATS[thread.id] || []).length;
+  const chatBase = thread.kind === 'note' ? thread.messages || [] : THREAD_CHATS[thread.id] || [];
+  const chatCount = chatBase.length + (thread.appendedMessages?.length || 0);
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
@@ -155,18 +115,47 @@ export function ThreadDetail({
       {/* Content */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 170 }}>
         {tab === 'summary'
-          ? renderSummary(thread, toggleItem, () => setTab('chat'))
+          ? renderSummary(thread, onToggleItem, () => setTab('chat'), onItemMessage)
           : <ThreadChatTab thread={thread} />}
       </ScrollView>
 
-      {/* Composer */}
+      {/* Composer — bottom padding tracks the safe-area inset directly; the phone tab bar
+          is hidden when the detail is open so no extra reservation is needed. */}
       <Composer
         accent={theme.color}
         hashtag={thread.tag}
         placeholder={tab === 'summary' ? `add to ${thread.tag}…` : 'Message Saarthi…'}
-        paddingBottom={embedded ? 28 : 92}
+        paddingBottom={Math.max(bottomInset, 12) + 16}
+        onSend={onSendMessage}
         onMic={onMic}
       />
     </View>
   );
+}
+
+function renderSummary(
+  thread: Thread,
+  toggleItem: (id: string) => void,
+  openChat: () => void,
+  itemMessage: (itemLabel: string, text: string) => void,
+) {
+  switch (thread.kind) {
+    case 'checklist':
+      return <MorningSummary thread={thread} onItemToggle={toggleItem} onItemChat={openChat} />;
+    case 'focus':
+    case 'focus-title':
+    case 'workout':
+    case 'food':
+    case 'evening':
+    case 'fitness':
+      // Fitness/evening reuse the focus layout until they get bespoke summaries — the prototype's
+      // FitnessSummary (activity rings, metric grid) isn't ported in this PR.
+      return <FocusSummary thread={thread} onItemToggle={toggleItem} onItemMessage={itemMessage} />;
+    case 'note':
+      return <NoteSummary thread={thread} />;
+    default: {
+      const _exhaustive: never = thread.kind;
+      return null;
+    }
+  }
 }

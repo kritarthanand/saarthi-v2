@@ -5,7 +5,8 @@ import { THREAD_CHATS, type Thread } from '@/lib/mockData';
 
 export function ThreadChatTab({ thread }: { thread: Thread }) {
   const theme = threadTheme(thread.tag);
-  const messages = thread.kind === 'note' ? thread.messages || [] : THREAD_CHATS[thread.id] || [];
+  const base = thread.kind === 'note' ? thread.messages || [] : THREAD_CHATS[thread.id] || [];
+  const messages = [...base, ...(thread.appendedMessages || [])];
   const tagName = thread.tag.replace('#', '');
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 24, gap: 14 }}>

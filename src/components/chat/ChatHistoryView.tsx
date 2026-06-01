@@ -2,14 +2,16 @@ import { useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { HISTORY_DAYS, THREAD_CHATS, TODAY_THREADS } from '@/lib/mockData';
+import { HISTORY_DAYS, THREAD_CHATS, type Thread } from '@/lib/mockData';
 import { AppHeader } from '../AppHeader';
 import { ChevRightIcon } from '../icons';
 
 export function ChatHistoryView({
+  threads,
   onOpenThread,
   topInset = 52,
 }: {
+  threads: Thread[];
   onOpenThread: (id: string) => void;
   topInset?: number;
 }) {
@@ -54,7 +56,7 @@ export function ChatHistoryView({
           active now
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          {TODAY_THREADS.map((t) => {
+          {threads.map((t) => {
             const theme = threadTheme(t.tag);
             return (
               <Pressable
@@ -103,18 +105,15 @@ export function ChatHistoryView({
                 const theme = threadTheme(th.tag);
                 // History rows are routable only when they carry a `threadId`. Avoid `.find(tag)` —
                 // tags aren't unique (e.g. two #FocusAndToDo threads today).
-                const routable = th.threadId && TODAY_THREADS.some((t) => t.id === th.threadId);
-                return (
-                  <Pressable
-                    key={ti}
-                    onPress={routable && th.threadId ? () => onOpenThread(th.threadId!) : undefined}
-                    style={{
-                      paddingVertical: 12, paddingHorizontal: 14,
-                      borderBottomWidth: ti < day.threads.length - 1 ? 1 : 0,
-                      borderBottomColor: Colors.border,
-                      flexDirection: 'row', alignItems: 'center', gap: 12,
-                    }}
-                  >
+                const routable = !!th.threadId && threads.some((t) => t.id === th.threadId);
+                const rowStyle = {
+                  paddingVertical: 12, paddingHorizontal: 14,
+                  borderBottomWidth: ti < day.threads.length - 1 ? 1 : 0,
+                  borderBottomColor: Colors.border,
+                  flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12,
+                };
+                const rowContents = (
+                  <>
                     <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.color }} />
                     <View style={{ flex: 1, gap: 2 }}>
                       <View
@@ -131,7 +130,16 @@ export function ChatHistoryView({
                       </Text>
                     </View>
                     {routable && <ChevRightIcon size={14} color={Colors.textFaint} />}
+                  </>
+                );
+                // Non-routable rows render as a plain View so we don't show the press affordance
+                // (cursor on web, ripple on Android) for something that won't navigate.
+                return routable ? (
+                  <Pressable key={ti} onPress={() => onOpenThread(th.threadId!)} style={rowStyle}>
+                    {rowContents}
                   </Pressable>
+                ) : (
+                  <View key={ti} style={rowStyle}>{rowContents}</View>
                 );
               })}
             </View>

@@ -9,9 +9,11 @@ import { ChevDownIcon, SendIcon } from '../icons';
 export function FocusSummary({
   thread,
   onItemToggle,
+  onItemMessage,
 }: {
   thread: Thread;
   onItemToggle: (id: string) => void;
+  onItemMessage?: (itemLabel: string, text: string) => void;
 }) {
   const theme = threadTheme(thread.tag);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -83,6 +85,7 @@ export function FocusSummary({
             isOpen={openId === item.id}
             onToggleOpen={() => setOpenId(openId === item.id ? null : item.id)}
             onCheck={() => onItemToggle(item.id)}
+            onSend={onItemMessage ? (text) => onItemMessage(item.label, text) : undefined}
           />
         ))}
       </View>
@@ -96,13 +99,22 @@ function FocusTodo({
   isOpen,
   onToggleOpen,
   onCheck,
+  onSend,
 }: {
   item: ThreadItem;
   theme: { color: string; dim: string; glyph: string };
   isOpen: boolean;
   onToggleOpen: () => void;
   onCheck: () => void;
+  onSend?: (text: string) => void;
 }) {
+  const [draft, setDraft] = useState('');
+  const send = () => {
+    const trimmed = draft.trim();
+    if (!trimmed || !onSend) return;
+    onSend(trimmed);
+    setDraft('');
+  };
   const priorityColor =
     item.priority === 'high' ? theme.color : item.priority === 'med' ? Colors.cyan : Colors.textFaint;
 
@@ -183,17 +195,25 @@ function FocusTodo({
               paddingVertical: 8, paddingHorizontal: 12,
               backgroundColor: Colors.bgCardElev, borderRadius: 999,
               borderColor: Colors.border, borderWidth: 1, marginLeft: 32,
+              opacity: onSend ? 1 : 0.5,
             }}
           >
             <TextInput
-              placeholder="say something about this todo…"
+              value={draft}
+              onChangeText={setDraft}
+              editable={!!onSend}
+              onSubmitEditing={send}
+              returnKeyType="send"
+              placeholder={onSend ? 'say something about this todo…' : 'composer not wired in this view'}
               placeholderTextColor={Colors.textFaint}
               style={{ flex: 1, color: Colors.text, fontSize: 13 }}
             />
             <Pressable
+              onPress={send}
+              disabled={!draft.trim() || !onSend}
               style={{
                 width: 26, height: 26, borderRadius: 13,
-                backgroundColor: theme.color,
+                backgroundColor: draft.trim() && onSend ? theme.color : Colors.bgCard,
                 alignItems: 'center', justifyContent: 'center',
               }}
             >

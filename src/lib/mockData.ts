@@ -44,6 +44,8 @@ export type Thread = {
   stats?: { label: string; value: string; pct: number; color: string }[];
   locked?: boolean;
   messages?: ChatMessage[];
+  /** User-typed (or voice-replayed) chat messages appended after the seeded transcript. */
+  appendedMessages?: ChatMessage[];
   elapsed?: number;
 };
 

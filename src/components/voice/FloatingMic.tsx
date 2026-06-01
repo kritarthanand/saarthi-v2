@@ -19,6 +19,8 @@ export function FloatingMic({
   if (hidden) return null;
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Start voice capture"
       onPress={onPress}
       style={{
         position: 'absolute',

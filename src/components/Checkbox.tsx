@@ -16,6 +16,8 @@ export function Checkbox({
 }) {
   return (
     <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
       onPress={onPress}
       style={{
         width: size,

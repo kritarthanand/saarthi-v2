@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import type { Thread } from '@/lib/mockData';
+import { timeAgoFor, type Thread } from '@/lib/mockData';
 import { Hashtag } from '../Hashtag';
 
 function MorningPreview({ thread }: { thread: Thread }) {
@@ -182,6 +182,11 @@ export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: (id: st
   const disabled = !!thread.locked;
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={
+        disabled ? `${thread.tag} — locked, ${thread.timeAgo}` : `Open ${thread.tag} thread`
+      }
+      accessibilityState={{ disabled }}
       onPress={disabled ? undefined : () => onOpen(thread.id)}
       disabled={disabled}
       style={{
@@ -209,7 +214,7 @@ export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: (id: st
           </Text>
         </View>
       </View>
-      <Text style={{ fontSize: 12.5, color: Colors.textDim, fontWeight: '500' }}>{thread.timeAgo}</Text>
+      <Text style={{ fontSize: 12.5, color: Colors.textDim, fontWeight: '500' }}>{timeAgoFor(thread)}</Text>
       {!thread.locked && renderPreview(thread)}
     </Pressable>
   );

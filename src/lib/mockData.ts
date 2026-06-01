@@ -47,7 +47,33 @@ export type Thread = {
   /** User-typed (or voice-replayed) chat messages appended after the seeded transcript. */
   appendedMessages?: ChatMessage[];
   elapsed?: number;
+  /** Epoch ms — when set, takes precedence over the literal `timeAgo` string. */
+  createdAt?: number;
 };
+
+export function formatRelative(epochMs: number, now: number = Date.now()): string {
+  const secs = Math.max(0, Math.floor((now - epochMs) / 1000));
+  if (secs < 45) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(epochMs).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+export function timeAgoFor(thread: Thread): string {
+  return thread.createdAt != null ? formatRelative(thread.createdAt) : thread.timeAgo;
+}
+
+export function subtitleFor(thread: Thread): string {
+  if (thread.kind === 'note' && thread.createdAt != null) {
+    const count = (thread.messages || []).filter((m) => m.from === 'me').length;
+    return `${count} thoughts · ${formatRelative(thread.createdAt)}`;
+  }
+  return thread.subtitle;
+}
 
 export type ScoreDay = { day: string; score: number; label: string; isToday?: boolean };
 export const SCORE_WEEK: ScoreDay[] = [

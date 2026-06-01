@@ -72,6 +72,8 @@ export function Composer({
           />
           {val.trim().length > 0 && (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
               onPress={send}
               style={{
                 width: 32, height: 32, borderRadius: 16,
@@ -84,6 +86,8 @@ export function Composer({
           )}
         </View>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Switch to voice"
           onPress={onMic}
           style={{
             width: 44, height: 44, borderRadius: 22,

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,7 +10,7 @@ import { EmptyDetail } from '@/components/shell/EmptyDetail';
 import { ThreadDetail } from '@/components/thread/ThreadDetail';
 import { TodayView } from '@/components/today/TodayView';
 import { FloatingMic } from '@/components/voice/FloatingMic';
-import { VoiceSession, type VoiceSavePayload } from '@/components/voice/VoiceSession';
+import { VoiceSession, type VoiceSavePayload, type VoiceSessionHandle } from '@/components/voice/VoiceSession';
 import { Colors, threadTheme } from '@/constants/theme';
 import type { ChatMessage, Thread } from '@/lib/mockData';
 import { TODAY_THREADS } from '@/lib/mockData';
@@ -39,6 +39,9 @@ export default function AppRoot() {
     mode === 'phone' ? null : 'morning'
   );
   const [voiceOpen, setVoiceOpen] = useState(false);
+  // Lets the iPad/web backdrop tap delegate to the session's own `finalize` — which
+  // saves any captured user lines before closing instead of dropping them.
+  const voiceSessionRef = useRef<VoiceSessionHandle>(null);
 
   // Canonical thread store — toggled items + sent messages live here so they survive
   // the ThreadDetail remount that `key={openThreadId}` forces in the master-detail view.
@@ -96,11 +99,15 @@ export default function AppRoot() {
 
   const handleSave = ({ tag, messages, elapsed }: VoiceSavePayload) => {
     const userMsgs = messages.filter((m) => m.from === 'me');
-    const id = 'note-' + Date.now();
+    const createdAt = Date.now();
+    const id = 'note-' + createdAt;
     const newThread: Thread = {
       id, tag, kind: 'note',
+      // Fallback strings only render when `createdAt` is missing; live label is computed
+      // via `timeAgoFor` / `subtitleFor` against `createdAt`.
       subtitle: `${userMsgs.length} thoughts · just now`,
       timeAgo: 'just now',
+      createdAt,
       messages, elapsed, items: [],
       pointsEarned: 0, pointsTotal: 0,
       preview: userMsgs.slice(0, 2).map((m) => m.text),
@@ -228,13 +235,21 @@ export default function AppRoot() {
         )}
       </View>
 
-      {/* Floating mic */}
-      <FloatingMic accent={activeAccent} onPress={() => setVoiceOpen(true)} hidden={voiceOpen} bottom={28} right={28} />
+      {/* Floating mic — also hidden when a thread is open, so it doesn't overlap the
+          Composer's own mic button in the detail pane (mirrors the phone branch). */}
+      <FloatingMic
+        accent={activeAccent}
+        onPress={() => setVoiceOpen(true)}
+        hidden={voiceOpen || !!openThreadId}
+        bottom={28}
+        right={28}
+      />
 
       {/* Voice modal */}
       {voiceOpen && (
         <Pressable
-          onPress={() => setVoiceOpen(false)}
+          accessibilityLabel="Dismiss voice capture"
+          onPress={() => voiceSessionRef.current?.dismiss()}
           style={{
             position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
             backgroundColor: 'rgba(0,0,0,0.55)',
@@ -251,6 +266,7 @@ export default function AppRoot() {
             }}
           >
             <VoiceSession
+              ref={voiceSessionRef}
               accent={activeAccent}
               maxSeconds={120}
               warnSeconds={30}

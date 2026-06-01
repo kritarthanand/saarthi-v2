@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { SUGGESTED_NEW_TAGS, type ChatMessage, type Thread } from '@/lib/mockData';
+import { SUGGESTED_NEW_TAGS, timeAgoFor, type ChatMessage, type Thread } from '@/lib/mockData';
 import { Hashtag } from '../Hashtag';
 import { MicIcon } from '../icons';
 
@@ -30,23 +30,34 @@ export type VoiceSavePayload = {
   elapsed: number;
 };
 
-export function VoiceSession({
-  accent = Colors.accent,
-  maxSeconds = 120,
-  warnSeconds = 30,
-  existingThreads,
-  onClose,
-  onSave,
-  topInset = 50,
-}: {
-  accent?: string;
-  maxSeconds?: number;
-  warnSeconds?: number;
-  existingThreads: Thread[];
-  onClose: () => void;
-  onSave?: (payload: VoiceSavePayload) => void;
-  topInset?: number;
-}) {
+export type VoiceSessionHandle = {
+  /** Save (if anything was captured) then dismiss. Safe to call from a backdrop tap. */
+  dismiss: () => void;
+};
+
+export const VoiceSession = forwardRef<
+  VoiceSessionHandle,
+  {
+    accent?: string;
+    maxSeconds?: number;
+    warnSeconds?: number;
+    existingThreads: Thread[];
+    onClose: () => void;
+    onSave?: (payload: VoiceSavePayload) => void;
+    topInset?: number;
+  }
+>(function VoiceSession(
+  {
+    accent = Colors.accent,
+    maxSeconds = 120,
+    warnSeconds = 30,
+    existingThreads,
+    onClose,
+    onSave,
+    topInset = 50,
+  },
+  ref
+) {
   const [hashtag, setHashtag] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(true);
   const [newTagDraft, setNewTagDraft] = useState('');
@@ -59,15 +70,52 @@ export function VoiceSession({
   // picker mid-stream). Without this, re-running the effect rewinds `i` to 0 and the
   // partial bubble blanks out.
   const cursorRef = useRef<{ lineIdx: number; i: number }>({ lineIdx: 0, i: 0 });
+  // Sub-second elapsed lives in a ref; we only `setElapsed` when the integer second
+  // changes (1 Hz) or when the warn/over threshold flips. Cuts the re-render rate
+  // from ~10/s to ~1/s, with no visible difference at this scale.
+  const elapsedRef = useRef(0);
 
   const tagTheme = hashtag ? threadTheme(hashtag) : { color: accent, dim: accent + '24', glyph: '✦' };
 
-  // Timer
+  // Filter the picker source: drop locked threads (they aren't writable yet) and
+  // dedupe by tag so identical chips don't appear side-by-side. Keep the newest
+  // thread per tag so accent/timeAgo reflect the live one.
+  const pickerThreads = useMemo(() => {
+    const seen = new Map<string, Thread>();
+    for (const t of existingThreads) {
+      if (t.locked) continue;
+      if (!seen.has(t.tag)) seen.set(t.tag, t);
+    }
+    return [...seen.values()];
+  }, [existingThreads]);
+  const existingTagsLower = useMemo(
+    () => new Set(existingThreads.map((t) => t.tag.toLowerCase())),
+    [existingThreads]
+  );
+  const draftCollides =
+    newTagDraft.length > 0 && existingTagsLower.has(('#' + newTagDraft).toLowerCase());
+
+  // Timer — 100 ms cadence drives the ref; state setters only fire when something
+  // visible would actually change.
   useEffect(() => {
     if (!recording) return;
-    const t = setInterval(() => setElapsed((e) => Math.min(e + 0.1, maxSeconds)), 100);
-    return () => clearInterval(t);
-  }, [recording, maxSeconds]);
+    const tick = setInterval(() => {
+      const next = Math.min(elapsedRef.current + 0.1, maxSeconds);
+      const prev = elapsedRef.current;
+      elapsedRef.current = next;
+      const prevSec = Math.floor(prev);
+      const nextSec = Math.floor(next);
+      const prevRemaining = maxSeconds - prev;
+      const nextRemaining = maxSeconds - next;
+      const flippedWarn =
+        prevRemaining > warnSeconds && nextRemaining <= warnSeconds && nextRemaining > 0;
+      const flippedOver = prevRemaining > 0 && nextRemaining <= 0;
+      if (nextSec !== prevSec || flippedWarn || flippedOver) {
+        setElapsed(next);
+      }
+    }, 100);
+    return () => clearInterval(tick);
+  }, [recording, maxSeconds, warnSeconds]);
 
   const remaining = maxSeconds - elapsed;
   const isWarn = remaining <= warnSeconds && remaining > 0;
@@ -140,6 +188,15 @@ export function VoiceSession({
     onClose();
   };
 
+  // Expose finalize so the parent (iPad/web backdrop tap) can save instead of dropping content.
+  useImperativeHandle(ref, () => ({ dismiss: finalize }), [finalize]);
+
+  const commitNewTag = () => {
+    if (!newTagDraft || draftCollides) return;
+    setHashtag('#' + newTagDraft);
+    setShowPicker(false);
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
       {/* Header */}
@@ -198,17 +255,26 @@ export function VoiceSession({
             existing threads
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {existingThreads.map((t) => (
+            {pickerThreads.map((t) => (
               <Pressable
                 key={t.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Capture into ${t.tag}, ${timeAgoFor(t)}`}
                 onPress={() => {
                   setHashtag(t.tag);
                   setShowPicker(false);
                 }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
               >
                 <Hashtag tag={t.tag} size="md" />
+                <Text style={{ fontSize: 10, color: Colors.textFaint, fontWeight: '500' }}>{timeAgoFor(t)}</Text>
               </Pressable>
             ))}
+            {pickerThreads.length === 0 && (
+              <Text style={{ fontSize: 12, color: Colors.textFaint, fontWeight: '500' }}>
+                no live threads · create one below
+              </Text>
+            )}
           </View>
           <Text
             style={{
@@ -231,44 +297,64 @@ export function VoiceSession({
               </Pressable>
             ))}
           </View>
-          <View
-            style={{
-              flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4,
-              paddingVertical: 8, paddingHorizontal: 12,
-              backgroundColor: Colors.bgCard,
-              borderRadius: 999, borderColor: Colors.border, borderWidth: 1,
-            }}
-          >
-            <Text style={{ color: Colors.textFaint, fontSize: 14, fontWeight: '700' }}>#</Text>
-            <TextInput
-              value={newTagDraft}
-              onChangeText={(v) => setNewTagDraft(v.replace(/[^A-Za-z0-9]/g, ''))}
-              placeholder="NameANewThread"
-              placeholderTextColor={Colors.textFaint}
-              style={{ flex: 1, color: Colors.text, fontSize: 13, fontWeight: '500' }}
-            />
-            <Pressable
-              disabled={!newTagDraft}
-              onPress={() => {
-                if (newTagDraft) {
-                  setHashtag('#' + newTagDraft);
-                  setShowPicker(false);
-                }
-              }}
+          <View style={{ gap: 6, marginTop: 4 }}>
+            <View
               style={{
-                paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999,
-                backgroundColor: newTagDraft ? accent : 'rgba(255,255,255,0.06)',
+                flexDirection: 'row', alignItems: 'center', gap: 6,
+                paddingVertical: 8, paddingHorizontal: 12,
+                backgroundColor: Colors.bgCard,
+                borderRadius: 999,
+                borderColor: draftCollides ? Colors.warn + '80' : Colors.border, borderWidth: 1,
               }}
             >
-              <Text
+              <Text style={{ color: Colors.textFaint, fontSize: 14, fontWeight: '700' }}>#</Text>
+              <TextInput
+                value={newTagDraft}
+                onChangeText={(v) => setNewTagDraft(v.replace(/[^A-Za-z0-9]/g, ''))}
+                onSubmitEditing={commitNewTag}
+                returnKeyType="done"
+                placeholder="NameANewThread"
+                placeholderTextColor={Colors.textFaint}
+                style={{ flex: 1, color: Colors.text, fontSize: 13, fontWeight: '500' }}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  draftCollides
+                    ? 'Tag already exists — pick it from the existing list instead'
+                    : 'Create new thread tag'
+                }
+                disabled={!newTagDraft || draftCollides}
+                onPress={commitNewTag}
                 style={{
-                  fontSize: 11.5, fontWeight: '700',
-                  color: newTagDraft ? '#fff' : Colors.textFaint,
+                  paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999,
+                  backgroundColor: newTagDraft && !draftCollides ? accent : 'rgba(255,255,255,0.06)',
                 }}
               >
-                create
-              </Text>
-            </Pressable>
+                <Text
+                  style={{
+                    fontSize: 11.5, fontWeight: '700',
+                    color: newTagDraft && !draftCollides ? '#fff' : Colors.textFaint,
+                  }}
+                >
+                  create
+                </Text>
+              </Pressable>
+            </View>
+            {draftCollides && (
+              <Pressable
+                onPress={() => {
+                  setHashtag('#' + newTagDraft);
+                  setNewTagDraft('');
+                  setShowPicker(false);
+                }}
+                style={{ paddingHorizontal: 6 }}
+              >
+                <Text style={{ fontSize: 11.5, color: Colors.warn, fontWeight: '600' }}>
+                  &ldquo;#{newTagDraft}&rdquo; already exists · tap to capture into it
+                </Text>
+              </Pressable>
+            )}
           </View>
         </View>
       )}
@@ -426,4 +512,4 @@ export function VoiceSession({
       </View>
     </View>
   );
-}
+});

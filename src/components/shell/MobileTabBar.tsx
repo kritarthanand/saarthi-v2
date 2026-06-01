@@ -33,6 +33,9 @@ export function MobileTabBar({ active, onChange }: { active: TabId; onChange: (t
         return (
           <Pressable
             key={t.id}
+            accessibilityRole="tab"
+            accessibilityLabel={t.label}
+            accessibilityState={{ selected: isA }}
             onPress={() => onChange(t.id)}
             style={{ paddingVertical: 4, paddingHorizontal: 10, alignItems: 'center', gap: 2 }}
           >

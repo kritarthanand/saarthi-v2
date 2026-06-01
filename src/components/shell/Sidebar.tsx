@@ -60,6 +60,9 @@ export function Sidebar({
         return (
           <Pressable
             key={t.id}
+            accessibilityRole="tab"
+            accessibilityLabel={t.label}
+            accessibilityState={{ selected: isA }}
             onPress={() => onChange(t.id)}
             style={{
               flexDirection: 'row',

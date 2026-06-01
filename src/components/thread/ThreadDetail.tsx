@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { THREAD_CHATS, type Thread } from '@/lib/mockData';
+import { subtitleFor, THREAD_CHATS, type Thread } from '@/lib/mockData';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
 import { BackIcon, DotsIcon } from '../icons';
@@ -53,14 +53,19 @@ export function ThreadDetail({
           <SaarthiLogo size={26} />
         </View>
         {!embedded && (
-          <Pressable onPress={onClose} style={{ width: 32, height: 36, alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            onPress={onClose}
+            style={{ width: 32, height: 36, alignItems: 'center', justifyContent: 'center' }}
+          >
             <BackIcon size={22} color={Colors.text} />
           </Pressable>
         )}
         <View style={{ flex: 1, gap: 1 }}>
           <Hashtag tag={thread.tag} size="xl" />
           <Text style={{ fontSize: 12, color: Colors.textFaint, fontWeight: '500', paddingLeft: 18 }}>
-            {thread.subtitle}
+            {subtitleFor(thread)}
           </Text>
         </View>
         <Pressable style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
@@ -84,6 +89,9 @@ export function ThreadDetail({
           return (
             <Pressable
               key={id}
+              accessibilityRole="tab"
+              accessibilityLabel={label}
+              accessibilityState={{ selected: isA }}
               onPress={() => setTab(id)}
               style={{
                 flex: 1, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10,

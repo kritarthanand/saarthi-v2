@@ -17,6 +17,19 @@ export function MorningSummary({
 }) {
   const theme = threadTheme(thread.tag);
   const done = thread.items.filter((i) => i.done).length;
+  const remaining = thread.items.length - done;
+  // Derive points + copy from the live `items` so they track the ring rather than
+  // showing stale "32 of 46 / Two left" the instant the user ticks something.
+  const pointsEarned = thread.items
+    .filter((i) => i.done)
+    .reduce((s, i) => s + (i.points ?? 0), 0);
+  const pointsTotal = thread.items.reduce((s, i) => s + (i.points ?? 0), 0);
+  const heroCopy =
+    remaining === 0
+      ? 'All clear. Streak holds.'
+      : remaining === 1
+        ? 'One left — finish it before lunch.'
+        : `${remaining} left — knocking them out before lunch keeps the streak.`;
   const r = 32;
   const c = 2 * Math.PI * r;
   return (
@@ -66,10 +79,10 @@ export function MorningSummary({
               letterSpacing: 1, textTransform: 'uppercase',
             }}
           >
-            {thread.pointsEarned} of {thread.pointsTotal} points
+            {pointsEarned} of {pointsTotal} points
           </Text>
           <Text style={{ fontSize: 15, color: Colors.text, fontWeight: '500', lineHeight: 20 }}>
-            Two left — both before lunch keeps the streak.
+            {heroCopy}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
             <FlameIcon size={13} color="#F08A3E" />

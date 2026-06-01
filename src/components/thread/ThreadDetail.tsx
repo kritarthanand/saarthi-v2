@@ -37,8 +37,15 @@ export function ThreadDetail({
   const [tab, setTab] = useState<'summary' | 'chat'>('summary');
   const theme = threadTheme(thread.tag);
 
+  // For notes, count only user-captured turns so the badge matches the "X thoughts
+  // captured" the user just saw on the voice screen (AI sim lines also live in
+  // `messages` but aren't "thoughts").
   const chatBase = thread.kind === 'note' ? thread.messages || [] : THREAD_CHATS[thread.id] || [];
-  const chatCount = chatBase.length + (thread.appendedMessages?.length || 0);
+  const chatCount =
+    thread.kind === 'note'
+      ? chatBase.filter((m) => m.from === 'me').length +
+        (thread.appendedMessages?.filter((m) => m.from === 'me').length || 0)
+      : chatBase.length + (thread.appendedMessages?.length || 0);
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
@@ -68,9 +75,26 @@ export function ThreadDetail({
             {subtitleFor(thread)}
           </Text>
         </View>
-        <Pressable style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
-          <DotsIcon size={20} />
-        </Pressable>
+        {/* Embedded mode (iPad/web master-detail) needs a way back to the EmptyDetail state.
+            The dots slot is unused, so reuse it as the close affordance there. */}
+        {embedded ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close thread"
+            onPress={onClose}
+            style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={{ color: Colors.textDim, fontSize: 22, fontWeight: '300' }}>×</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <DotsIcon size={20} />
+          </Pressable>
+        )}
       </View>
 
       {/* Tab switcher */}

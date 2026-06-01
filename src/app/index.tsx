@@ -99,6 +99,32 @@ export default function AppRoot() {
 
   const handleSave = ({ tag, messages, elapsed }: VoiceSavePayload) => {
     const userMsgs = messages.filter((m) => m.from === 'me');
+    if (userMsgs.length === 0) return;
+
+    // Stamp clock times so the chat tab doesn't render "undefined".
+    const stamped = userMsgs.map((m) => ({ ...m, time: m.time ?? fmtTime() }));
+
+    // Capturing into an existing tag should *append* to that thread, not fork a new
+    // duplicate-tag note next to it. Look up the live thread by tag; only fall through
+    // to the new-note path when nothing matches.
+    const existingId = threadOrder.find((id) => threadsById[id]?.tag === tag);
+    if (existingId) {
+      setThreadsById((prev) => {
+        const t = prev[existingId];
+        if (!t) return prev;
+        return {
+          ...prev,
+          [existingId]:
+            t.kind === 'note'
+              ? { ...t, messages: [...(t.messages || []), ...stamped] }
+              : { ...t, appendedMessages: [...(t.appendedMessages || []), ...stamped] },
+        };
+      });
+      setTab('today');
+      setOpenThreadId(existingId);
+      return;
+    }
+
     const createdAt = Date.now();
     const id = 'note-' + createdAt;
     const newThread: Thread = {
@@ -174,10 +200,17 @@ export default function AppRoot() {
           />
         )}
 
-        {/* Voice modal */}
-        <Modal visible={voiceOpen} animationType="fade" transparent>
+        {/* Voice modal — `onRequestClose` is required on Android. Without it the system
+            back button dismisses the modal but skips finalize, dropping the transcript. */}
+        <Modal
+          visible={voiceOpen}
+          animationType="fade"
+          transparent
+          onRequestClose={() => voiceSessionRef.current?.dismiss()}
+        >
           <View style={{ flex: 1, backgroundColor: Colors.bg }}>
             <VoiceSession
+              ref={voiceSessionRef}
               accent={activeAccent}
               maxSeconds={120}
               warnSeconds={30}

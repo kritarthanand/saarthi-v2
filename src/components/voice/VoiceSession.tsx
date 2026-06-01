@@ -191,8 +191,6 @@ export const VoiceSession = forwardRef<
     if (partial) scrollRef.current?.scrollToEnd({ animated: false });
   }, [partial]);
 
-  // Memoize so the imperative-handle bind below has a stable dep — without this,
-  // `useImperativeHandle` rebinds the `dismiss` method on every render.
   const finalize = useCallback(() => {
     const userMsgs = messages.filter((m) => m.from === 'me');
     if (userMsgs.length > 0) {
@@ -201,9 +199,15 @@ export const VoiceSession = forwardRef<
     onClose();
   }, [messages, hashtag, elapsed, onSave, onClose]);
 
-  // Expose finalize so the parent (iPad/web backdrop tap, phone Android back) can save
-  // instead of dropping content.
-  useImperativeHandle(ref, () => ({ dismiss: finalize }), [finalize]);
+  // Stable-handle pattern: parent may pass non-memoized `onSave` / `onClose`, which
+  // would otherwise cycle `finalize`'s identity and rebind the imperative handle every
+  // render. Keep the latest `finalize` in a ref; expose a stable `dismiss` that
+  // dereferences it. Deps stay `[]` so the handle binds exactly once.
+  const finalizeRef = useRef(finalize);
+  useEffect(() => {
+    finalizeRef.current = finalize;
+  }, [finalize]);
+  useImperativeHandle(ref, () => ({ dismiss: () => finalizeRef.current() }), []);
 
   const commitNewTag = () => {
     if (!newTagDraft || draftCollides) return;
@@ -514,9 +518,12 @@ export const VoiceSession = forwardRef<
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={
-            isOver ? 'Save and close' : recording ? 'Stop and save' : 'Resume capture'
-          }
+          accessibilityLabel={(() => {
+            const hasCapture = messages.some((m) => m.from === 'me');
+            if (isOver) return hasCapture ? 'Save and close' : 'Close';
+            if (recording) return hasCapture ? 'Stop and save' : 'Stop';
+            return 'Resume capture';
+          })()}
           // Once the timer's up, the only useful action is save-and-close — the timer
           // effect immediately flips `recording` back to false on any resume attempt,
           // so tapping a mic icon here just flickers. Route the tap through `finalize`.

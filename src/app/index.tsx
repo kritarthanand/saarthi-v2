@@ -232,7 +232,14 @@ export default function AppRoot() {
 
   return (
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: Colors.bg }}>
-      <Sidebar variant={mode} active={tab} onChange={setTab} />
+      <Sidebar
+        variant={mode}
+        active={tab}
+        onChange={(t) => {
+          setTab(t);
+          setOpenThreadId(null);
+        }}
+      />
 
       {/* List pane */}
       <View

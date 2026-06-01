@@ -75,9 +75,14 @@ export function ThreadDetail({
             accessibilityRole="button"
             accessibilityLabel="Close thread"
             onPress={onClose}
-            style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
+            style={{
+              width: 32, height: 32, borderRadius: 16,
+              alignItems: 'center', justifyContent: 'center',
+              backgroundColor: Colors.bgCard,
+              borderColor: Colors.border, borderWidth: 1,
+            }}
           >
-            <Text style={{ color: Colors.textDim, fontSize: 22, fontWeight: '300' }}>×</Text>
+            <Text style={{ color: Colors.textDim, fontSize: 18, fontWeight: '500', lineHeight: 20 }}>×</Text>
           </Pressable>
         ) : (
           <Pressable

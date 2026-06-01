@@ -36,8 +36,12 @@ This file is the shared, model-agnostic source of truth for coding agents workin
 
 ### Install
 
+- Bootstrap env vars + worktree: `bash scripts/bootstrap-worktree.sh`
+  - First run seeds `~/.config/saarthi-v2/{app,server}.env` from the repo's
+    `.env.example` templates and symlinks them into the worktree as `.env`
+    and `server/.env`. Edit the canonical files once; every worktree picks
+    up the change.
 - App dependencies: `npm install`
-- Server env file: `cp server/.env.example server/.env`
 - Server dependencies: `cd server && uv sync`
 
 ### Run

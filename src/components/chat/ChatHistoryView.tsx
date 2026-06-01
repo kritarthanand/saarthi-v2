@@ -1,10 +1,12 @@
-import { useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { useCallback, useState } from 'react';
+import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { HISTORY_DAYS, THREAD_CHATS, type Thread } from '@/lib/mockData';
+import { HISTORY_DAYS, THREAD_CHATS, type HistoryDay, type Thread } from '@/lib/mockData';
 import { AppHeader } from '../AppHeader';
 import { ChevRightIcon } from '../icons';
+
+const PAGE = 5;
 
 export function ChatHistoryView({
   threads,
@@ -15,36 +17,16 @@ export function ChatHistoryView({
   onOpenThread: (id: string) => void;
   topInset?: number;
 }) {
-  const [count, setCount] = useState(5);
-  // Gate the loader so a single fling at the bottom can't burn through all pages —
-  // `scrollEventThrottle` still fires several times/s while held.
-  const loadingRef = useRef(false);
-  const days = HISTORY_DAYS.slice(0, count);
+  const [count, setCount] = useState(PAGE);
+  const data = HISTORY_DAYS.slice(0, count);
 
-  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (loadingRef.current) return;
-    if (count >= HISTORY_DAYS.length) return;
-    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-    if (contentSize.height - contentOffset.y - layoutMeasurement.height < 200) {
-      loadingRef.current = true;
-      setCount((c) => Math.min(c + 2, HISTORY_DAYS.length));
-      setTimeout(() => {
-        loadingRef.current = false;
-      }, 400);
-    }
-  };
+  const loadMore = useCallback(() => {
+    setCount((c) => Math.min(c + 2, HISTORY_DAYS.length));
+  }, []);
 
-  return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: Colors.bg }}
-      contentContainerStyle={{ paddingBottom: 110 }}
-      onScroll={handleScroll}
-      scrollEventThrottle={200}
-      showsVerticalScrollIndicator={false}
-    >
+  const renderHeader = () => (
+    <View>
       <AppHeader title="Chat" right="all threads" topInset={topInset} />
-
-      {/* Active strip */}
       <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
         <Text
           style={{
@@ -55,12 +37,19 @@ export function ChatHistoryView({
         >
           active now
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 8 }}
+          keyboardShouldPersistTaps="handled"
+        >
           {threads.map((t) => {
             const theme = threadTheme(t.tag);
             return (
               <Pressable
                 key={t.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${t.tag} thread`}
                 onPress={() => onOpenThread(t.id)}
                 style={{
                   paddingVertical: 8, paddingHorizontal: 12,
@@ -78,90 +67,109 @@ export function ChatHistoryView({
           })}
         </ScrollView>
       </View>
+    </View>
+  );
 
-      {/* Day groups */}
-      <View style={{ paddingHorizontal: 16, gap: 18 }}>
-        {days.map((day, di) => (
-          <View key={di} style={{ gap: 8 }}>
-            <View
-              style={{
-                flexDirection: 'row', alignItems: 'flex-end',
-                justifyContent: 'space-between', paddingHorizontal: 4,
-              }}
-            >
-              <Text style={{ fontSize: 13, color: Colors.text, fontWeight: '700' }}>{day.label}</Text>
-              {day.date ? (
-                <Text style={{ fontSize: 11.5, color: Colors.textFaint, fontWeight: '500' }}>{day.date}</Text>
-              ) : null}
-            </View>
-            <View
-              style={{
-                backgroundColor: Colors.bgCard,
-                borderColor: Colors.border, borderWidth: 1,
-                borderRadius: 16, overflow: 'hidden',
-              }}
-            >
-              {day.threads.map((th, ti) => {
-                const theme = threadTheme(th.tag);
-                // History rows are routable only when they carry a `threadId`. Avoid `.find(tag)` —
-                // tags aren't unique (e.g. two #FocusAndToDo threads today).
-                const routable = !!th.threadId && threads.some((t) => t.id === th.threadId);
-                const rowStyle = {
-                  paddingVertical: 12, paddingHorizontal: 14,
-                  borderBottomWidth: ti < day.threads.length - 1 ? 1 : 0,
-                  borderBottomColor: Colors.border,
-                  flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12,
-                };
-                const rowContents = (
-                  <>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.color }} />
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <View
-                        style={{
-                          flexDirection: 'row', alignItems: 'flex-end',
-                          justifyContent: 'space-between', gap: 8,
-                        }}
-                      >
-                        <Text style={{ fontSize: 14, color: theme.color, fontWeight: '700' }}>{th.tag}</Text>
-                        <Text style={{ fontSize: 11, color: Colors.textFaint, fontWeight: '500' }}>{th.time}</Text>
-                      </View>
-                      <Text numberOfLines={1} style={{ fontSize: 12.5, color: Colors.textDim, fontWeight: '500' }}>
-                        {th.preview}
-                      </Text>
-                    </View>
-                    {routable && <ChevRightIcon size={14} color={Colors.textFaint} />}
-                  </>
-                );
-                // Non-routable rows render as a plain View so we don't show the press affordance
-                // (cursor on web, ripple on Android) for something that won't navigate.
-                return routable ? (
-                  <Pressable key={ti} onPress={() => onOpenThread(th.threadId!)} style={rowStyle}>
-                    {rowContents}
-                  </Pressable>
-                ) : (
-                  <View key={ti} style={rowStyle}>{rowContents}</View>
-                );
-              })}
-            </View>
-          </View>
-        ))}
-        {count < HISTORY_DAYS.length ? (
-          <View style={{ padding: 20, alignItems: 'center' }}>
-            <Text style={{ color: Colors.textFaint, fontSize: 12, fontWeight: '500' }}>scroll to load more</Text>
-          </View>
-        ) : (
-          <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-            <Text
-              style={{
-                color: Colors.textFaint, fontSize: 11, fontWeight: '500',
-                letterSpacing: 1, textTransform: 'uppercase',
-              }}
-            >
-              ✦ that&apos;s everything
-            </Text>
-          </View>
-        )}
+  const renderFooter = () => {
+    if (count < HISTORY_DAYS.length) {
+      return (
+        <View style={{ padding: 20, alignItems: 'center' }}>
+          <Text style={{ color: Colors.textFaint, fontSize: 12, fontWeight: '500' }}>loading more…</Text>
+        </View>
+      );
+    }
+    return (
+      <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+        <Text
+          style={{
+            color: Colors.textFaint, fontSize: 11, fontWeight: '500',
+            letterSpacing: 1, textTransform: 'uppercase',
+          }}
+        >
+          ✦ that&apos;s everything
+        </Text>
       </View>
-    </ScrollView>
+    );
+  };
+
+  const renderDay = ({ item: day }: { item: HistoryDay }) => (
+    <View style={{ paddingHorizontal: 16, paddingBottom: 18 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 8 }}>
+        <Text style={{ fontSize: 13, color: Colors.text, fontWeight: '700' }}>{day.label}</Text>
+        {day.date ? (
+          <Text style={{ fontSize: 11.5, color: Colors.textFaint, fontWeight: '500' }}>{day.date}</Text>
+        ) : null}
+      </View>
+      <View
+        style={{
+          backgroundColor: Colors.bgCard,
+          borderColor: Colors.border, borderWidth: 1,
+          borderRadius: 16, overflow: 'hidden',
+        }}
+      >
+        {day.threads.map((th, ti) => {
+          const theme = threadTheme(th.tag);
+          const routable = !!th.threadId && threads.some((t) => t.id === th.threadId);
+          const rowStyle = {
+            paddingVertical: 12, paddingHorizontal: 14,
+            borderBottomWidth: ti < day.threads.length - 1 ? 1 : 0,
+            borderBottomColor: Colors.border,
+            flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12,
+          };
+          // Inner row key prefers stable threadId; falls back to tag+time to remain
+          // unique within a day. Using `ti` would re-key everything when a row inserts.
+          const rowKey = th.threadId ?? `${th.tag}@${th.time}`;
+          const rowContents = (
+            <>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.color }} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <View
+                  style={{
+                    flexDirection: 'row', alignItems: 'flex-end',
+                    justifyContent: 'space-between', gap: 8,
+                  }}
+                >
+                  <Text style={{ fontSize: 14, color: theme.color, fontWeight: '700' }}>{th.tag}</Text>
+                  <Text style={{ fontSize: 11, color: Colors.textFaint, fontWeight: '500' }}>{th.time}</Text>
+                </View>
+                <Text numberOfLines={1} style={{ fontSize: 12.5, color: Colors.textDim, fontWeight: '500' }}>
+                  {th.preview}
+                </Text>
+              </View>
+              {routable && <ChevRightIcon size={14} color={Colors.textFaint} />}
+            </>
+          );
+          return routable ? (
+            <Pressable
+              key={rowKey}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${th.tag} from ${day.label}`}
+              onPress={() => onOpenThread(th.threadId!)}
+              style={rowStyle}
+            >
+              {rowContents}
+            </Pressable>
+          ) : (
+            <View key={rowKey} style={rowStyle}>{rowContents}</View>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  return (
+    <FlatList
+      style={{ flex: 1, backgroundColor: Colors.bg }}
+      contentContainerStyle={{ paddingBottom: 110 }}
+      data={data}
+      keyExtractor={(d) => `${d.label}|${d.date}`}
+      renderItem={renderDay}
+      ListHeaderComponent={renderHeader}
+      ListFooterComponent={renderFooter}
+      onEndReached={loadMore}
+      onEndReachedThreshold={0.5}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    />
   );
 }

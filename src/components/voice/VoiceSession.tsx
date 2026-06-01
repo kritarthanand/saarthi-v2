@@ -24,6 +24,13 @@ const fmt = (s: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
+const nowClock = () =>
+  new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+// Promote the first letter to uppercase so a user typing "weeklyreview" still produces
+// `#WeeklyReview`, which matches `THREAD_THEMES` keys and any existing-tag collision check.
+const normalizeTag = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
+
 export type VoiceSavePayload = {
   tag: string;
   messages: ChatMessage[];
@@ -93,7 +100,7 @@ export const VoiceSession = forwardRef<
     [existingThreads]
   );
   const draftCollides =
-    newTagDraft.length > 0 && existingTagsLower.has(('#' + newTagDraft).toLowerCase());
+    newTagDraft.length > 0 && existingTagsLower.has(('#' + normalizeTag(newTagDraft)).toLowerCase());
 
   // Timer — 100 ms cadence drives the ref; state setters only fire when something
   // visible would actually change.
@@ -138,7 +145,7 @@ export const VoiceSession = forwardRef<
     if (wantAi) {
       const t = setTimeout(() => {
         if (cancelled) return;
-        setMessages((m) => [...m, { from: 'ai', text: SIM_AI_LINES[aiIdx]! }]);
+        setMessages((m) => [...m, { from: 'ai', text: SIM_AI_LINES[aiIdx]!, time: nowClock() }]);
       }, 600);
       return () => {
         cancelled = true;
@@ -163,7 +170,7 @@ export const VoiceSession = forwardRef<
         clearInterval(tick);
         setTimeout(() => {
           if (cancelled) return;
-          setMessages((m) => [...m, { from: 'me', text: next }]);
+          setMessages((m) => [...m, { from: 'me', text: next, time: nowClock() }]);
           setPartial('');
           cursorRef.current = { lineIdx: lineIdx + 1, i: 0 };
         }, 250);
@@ -175,10 +182,14 @@ export const VoiceSession = forwardRef<
     };
   }, [messages, recording, showPicker]);
 
-  // Auto-scroll
+  // Smooth scroll only on full-message commits. The typing tick fires ~16×/s while a
+  // line streams in; animated scrolls would stack and visibly thrash.
   useEffect(() => {
     scrollRef.current?.scrollToEnd({ animated: true });
-  }, [messages, partial]);
+  }, [messages]);
+  useEffect(() => {
+    if (partial) scrollRef.current?.scrollToEnd({ animated: false });
+  }, [partial]);
 
   const finalize = () => {
     const userMsgs = messages.filter((m) => m.from === 'me');
@@ -193,7 +204,7 @@ export const VoiceSession = forwardRef<
 
   const commitNewTag = () => {
     if (!newTagDraft || draftCollides) return;
-    setHashtag('#' + newTagDraft);
+    setHashtag('#' + normalizeTag(newTagDraft));
     setShowPicker(false);
   };
 
@@ -313,6 +324,9 @@ export const VoiceSession = forwardRef<
                 onChangeText={(v) => setNewTagDraft(v.replace(/[^A-Za-z0-9]/g, ''))}
                 onSubmitEditing={commitNewTag}
                 returnKeyType="done"
+                autoCapitalize="words"
+                autoCorrect={false}
+                spellCheck={false}
                 placeholder="NameANewThread"
                 placeholderTextColor={Colors.textFaint}
                 style={{ flex: 1, color: Colors.text, fontSize: 13, fontWeight: '500' }}
@@ -344,14 +358,14 @@ export const VoiceSession = forwardRef<
             {draftCollides && (
               <Pressable
                 onPress={() => {
-                  setHashtag('#' + newTagDraft);
+                  setHashtag('#' + normalizeTag(newTagDraft));
                   setNewTagDraft('');
                   setShowPicker(false);
                 }}
                 style={{ paddingHorizontal: 6 }}
               >
                 <Text style={{ fontSize: 11.5, color: Colors.warn, fontWeight: '600' }}>
-                  &ldquo;#{newTagDraft}&rdquo; already exists · tap to capture into it
+                  &ldquo;#{normalizeTag(newTagDraft)}&rdquo; already exists · tap to capture into it
                 </Text>
               </Pressable>
             )}
@@ -367,6 +381,7 @@ export const VoiceSession = forwardRef<
           padding: 16, paddingBottom: 140, gap: 14,
           minHeight: '100%',
         }}
+        keyboardShouldPersistTaps="handled"
       >
         {messages.length === 0 && !partial && (
           <View

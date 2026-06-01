@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Keyboard, Platform, Pressable, Text, TextInput, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 import { MicIcon, SendIcon } from './icons';
@@ -20,6 +20,20 @@ export function Composer({
   paddingBottom?: number;
 }) {
   const [val, setVal] = useState('');
+  // The Composer is `position: absolute` so iOS doesn't reflow it when the keyboard
+  // appears. Track the keyboard inset manually and pad the bottom by it; KAV doesn't
+  // mix well with absolute children.
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const send = () => {
     const trimmed = val.trim();
     if (!trimmed || !onSend) return;
@@ -34,7 +48,7 @@ export function Composer({
         left: 0,
         right: 0,
         bottom: 0,
-        paddingBottom,
+        paddingBottom: kbHeight > 0 ? kbHeight + 8 : paddingBottom,
         paddingTop: 12,
         paddingHorizontal: 14,
         backgroundColor: 'transparent',

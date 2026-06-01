@@ -121,7 +121,11 @@ export function ThreadDetail({
       </View>
 
       {/* Content */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 170 }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 170 }}
+        keyboardShouldPersistTaps="handled"
+      >
         {tab === 'summary'
           ? renderSummary(thread, onToggleItem, () => setTab('chat'), onItemMessage)
           : <ThreadChatTab thread={thread} />}

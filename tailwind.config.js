@@ -7,23 +7,28 @@ module.exports = {
     extend: {
       colors: {
         bg: {
-          DEFAULT: '#000000',
-          elevated: '#0f1011',
-          surface: '#16181a',
-          selected: '#1f2226',
+          DEFAULT: '#0A0A0B',
+          elev: '#141416',
+          card: '#1A1A1D',
+          cardElev: '#222226',
         },
         fg: {
-          DEFAULT: '#ffffff',
-          muted: '#b0b4ba',
-          subtle: '#60646c',
+          DEFAULT: '#F5F5F7',
+          dim: 'rgba(245,245,247,0.58)',
+          faint: 'rgba(245,245,247,0.36)',
         },
         accent: {
-          DEFAULT: '#7c8cf8',
-          muted: '#3a4470',
+          DEFAULT: '#F08A3E',
+          dim: 'rgba(240,138,62,0.14)',
         },
-        border: {
-          DEFAULT: '#22252a',
-          muted: '#16181a',
+        green: { DEFAULT: '#3FBF7F' },
+        blue: { DEFAULT: '#5B8DEF' },
+        purple: { DEFAULT: '#8B7BD9' },
+        pink: { DEFAULT: '#E07AA8' },
+        gold: { DEFAULT: '#D9B86E' },
+        line: {
+          DEFAULT: 'rgba(255,255,255,0.06)',
+          strong: 'rgba(255,255,255,0.10)',
         },
       },
       fontFamily: {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Modal, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -29,14 +29,14 @@ export default function AppRoot() {
   const insets = useSafeAreaInsets();
 
   const [tab, setTab] = useState<TabId>('today');
-  const [openThreadId, setOpenThreadId] = useState<string | null>(mode === 'phone' ? null : 'morning');
+  // Default-open the morning thread on tablet/web so the detail pane isn't empty on first paint.
+  // Frozen at mount on purpose — we don't want a window resize across the phone/iPad breakpoint
+  // to either resurrect a thread the user just closed or trap a phone user in a detail overlay.
+  const [openThreadId, setOpenThreadId] = useState<string | null>(() =>
+    mode === 'phone' ? null : 'morning'
+  );
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [customThreads, setCustomThreads] = useState<Thread[]>([]);
-
-  // When the screen mode flips, sync default state.
-  useEffect(() => {
-    if (mode !== 'phone' && !openThreadId) setOpenThreadId('morning');
-  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = ({ tag, messages, elapsed }: VoiceSavePayload) => {
     const userMsgs = messages.filter((m) => m.from === 'me');
@@ -49,9 +49,11 @@ export default function AppRoot() {
       pointsEarned: 0, pointsTotal: 0,
       preview: userMsgs.slice(0, 2).map((m) => m.text),
     };
+    // All three updates batch into one render — no setTimeout means no unmount-leak window
+    // and no race where reopening voice would pop a thread underneath the modal.
     setCustomThreads((prev) => [newThread, ...prev]);
     setTab('today');
-    setTimeout(() => setOpenThreadId(id), 200);
+    setOpenThreadId(id);
   };
 
   const activeAccent = openThreadId

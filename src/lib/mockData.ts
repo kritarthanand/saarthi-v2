@@ -201,19 +201,27 @@ export const THREAD_CHATS: Record<string, ChatMessage[]> = {
   ],
 };
 
+export type HistoryDayThread = {
+  tag: string;
+  preview: string;
+  time: string;
+  /** Set when this history row points at a live Today thread; otherwise the row is non-routable. */
+  threadId?: string;
+};
+
 export type HistoryDay = {
   label: string;
   date: string;
-  threads: { tag: string; preview: string; time: string }[];
+  threads: HistoryDayThread[];
 };
 
 export const HISTORY_DAYS: HistoryDay[] = [
   {
     label: 'Today', date: 'Wed, Apr 29',
     threads: [
-      { tag: '#MorningRitual', preview: '6 of 8 done · journaled about demo', time: '7:12 AM' },
+      { tag: '#MorningRitual', preview: '6 of 8 done · journaled about demo', time: '7:12 AM', threadId: 'morning' },
       { tag: '#FitnessForToday', preview: 'Pull day · 7×4 weighted pull-ups', time: '9:02 AM' },
-      { tag: '#FocusAndToDo', preview: '5 todos · roadmap blocked 5–6 PM', time: '8:04 AM' },
+      { tag: '#FocusAndToDo', preview: '5 todos · roadmap blocked 5–6 PM', time: '8:04 AM', threadId: 'focus' },
     ],
   },
   {

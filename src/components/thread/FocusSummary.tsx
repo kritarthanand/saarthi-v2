@@ -17,6 +17,17 @@ export function FocusSummary({
   const [openId, setOpenId] = useState<string | null>(null);
   const remaining = thread.items.filter((i) => !i.done).length;
   const doneCount = thread.items.length - remaining;
+  const scheduledItems = thread.items.filter((i) => !!i.scheduled);
+  const scheduledRows = scheduledItems.slice(0, 3).map((i) => ({
+    time: i.scheduled!,
+    label: i.label,
+    color:
+      i.priority === 'high'
+        ? theme.color
+        : i.priority === 'med'
+          ? 'rgba(91,141,239,0.6)'
+          : Colors.textFaint,
+  }));
 
   return (
     <View style={{ paddingHorizontal: 16, paddingVertical: 4, paddingBottom: 24, gap: 14 }}>
@@ -40,26 +51,26 @@ export function FocusSummary({
               </Text>
             </Text>
           </View>
-          <Text style={{ fontSize: 11, color: Colors.textDim, fontWeight: '500' }}>2 scheduled</Text>
+          <Text style={{ fontSize: 11, color: Colors.textDim, fontWeight: '500' }}>
+            {scheduledItems.length} scheduled
+          </Text>
         </View>
-        <View style={{ gap: 4, marginTop: 4 }}>
-          {[
-            { time: '10–12', label: 'Onboarding v2 spec', c: theme.color },
-            { time: '13:30', label: "Review Anika's PR", c: 'rgba(91,141,239,0.6)' },
-            { time: '17–18', label: 'Q3 roadmap outline', c: theme.color },
-          ].map((b, i) => (
-            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Text style={{ fontSize: 11, color: Colors.textFaint, fontWeight: '600', width: 46 }}>{b.time}</Text>
-              <View style={{ flex: 1, height: 6, backgroundColor: b.c, borderRadius: 3 }} />
-              <Text
-                style={{ fontSize: 11.5, color: Colors.textDim, width: 130, textAlign: 'right' }}
-                numberOfLines={1}
-              >
-                {b.label}
-              </Text>
-            </View>
-          ))}
-        </View>
+        {scheduledRows.length > 0 && (
+          <View style={{ gap: 4, marginTop: 4 }}>
+            {scheduledRows.map((b, i) => (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Text style={{ fontSize: 11, color: Colors.textFaint, fontWeight: '600', width: 60 }}>{b.time}</Text>
+                <View style={{ flex: 1, height: 6, backgroundColor: b.color, borderRadius: 3 }} />
+                <Text
+                  style={{ fontSize: 11.5, color: Colors.textDim, width: 130, textAlign: 'right' }}
+                  numberOfLines={1}
+                >
+                  {b.label}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       {/* Todo list */}

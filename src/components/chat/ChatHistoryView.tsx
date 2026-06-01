@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Pressable, ScrollView, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
 import { HISTORY_DAYS, THREAD_CHATS, TODAY_THREADS } from '@/lib/mockData';
@@ -14,12 +14,21 @@ export function ChatHistoryView({
   topInset?: number;
 }) {
   const [count, setCount] = useState(5);
+  // Gate the loader so a single fling at the bottom can't burn through all pages —
+  // `scrollEventThrottle` still fires several times/s while held.
+  const loadingRef = useRef(false);
   const days = HISTORY_DAYS.slice(0, count);
 
-  const handleScroll = (e: any) => {
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (loadingRef.current) return;
+    if (count >= HISTORY_DAYS.length) return;
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
     if (contentSize.height - contentOffset.y - layoutMeasurement.height < 200) {
+      loadingRef.current = true;
       setCount((c) => Math.min(c + 2, HISTORY_DAYS.length));
+      setTimeout(() => {
+        loadingRef.current = false;
+      }, 400);
     }
   };
 
@@ -92,13 +101,13 @@ export function ChatHistoryView({
             >
               {day.threads.map((th, ti) => {
                 const theme = threadTheme(th.tag);
-                const isActive =
-                  TODAY_THREADS.some((t) => t.tag === th.tag) && day.label === 'Today';
-                const todayMatch = TODAY_THREADS.find((t) => t.tag === th.tag);
+                // History rows are routable only when they carry a `threadId`. Avoid `.find(tag)` —
+                // tags aren't unique (e.g. two #FocusAndToDo threads today).
+                const routable = th.threadId && TODAY_THREADS.some((t) => t.id === th.threadId);
                 return (
                   <Pressable
                     key={ti}
-                    onPress={() => isActive && todayMatch && onOpenThread(todayMatch.id)}
+                    onPress={routable && th.threadId ? () => onOpenThread(th.threadId!) : undefined}
                     style={{
                       paddingVertical: 12, paddingHorizontal: 14,
                       borderBottomWidth: ti < day.threads.length - 1 ? 1 : 0,
@@ -121,7 +130,7 @@ export function ChatHistoryView({
                         {th.preview}
                       </Text>
                     </View>
-                    {isActive && <ChevRightIcon size={14} color={Colors.textFaint} />}
+                    {routable && <ChevRightIcon size={14} color={Colors.textFaint} />}
                   </Pressable>
                 );
               })}

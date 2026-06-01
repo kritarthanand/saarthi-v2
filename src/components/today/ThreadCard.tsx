@@ -124,6 +124,57 @@ function NotePreview({ thread }: { thread: Thread }) {
   );
 }
 
+// Catch-all preview: render a concise item summary. Used for any kind without a
+// bespoke editorial layout (currently `evening` once unlocked, and `fitness`).
+function GenericPreview({ thread }: { thread: Thread }) {
+  const remaining = thread.items.filter((i) => !i.done).length;
+  const headline =
+    typeof thread.headline === 'string'
+      ? thread.headline
+      : thread.preview?.[0] || thread.items[0]?.label;
+  if (!headline) return null;
+  return (
+    <View style={{ gap: 4 }}>
+      <Text
+        numberOfLines={1}
+        style={{ fontSize: 15, fontWeight: '600', color: Colors.text, letterSpacing: -0.2 }}
+      >
+        {headline}
+      </Text>
+      {thread.items.length > 0 && (
+        <Text style={{ fontSize: 12, color: Colors.textDim, fontWeight: '500' }}>
+          {remaining} to do · {thread.items.length - remaining} done
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function renderPreview(thread: Thread) {
+  switch (thread.kind) {
+    case 'checklist':
+      return <MorningPreview thread={thread} />;
+    case 'focus':
+      return <FocusPreview thread={thread} />;
+    case 'focus-title':
+      return <FocusTitlePreview thread={thread} />;
+    case 'workout':
+      return <WorkoutPreview thread={thread} />;
+    case 'food':
+      return <FoodPreview thread={thread} />;
+    case 'note':
+      return <NotePreview thread={thread} />;
+    case 'evening':
+    case 'fitness':
+      return <GenericPreview thread={thread} />;
+    default: {
+      // Exhaustiveness — adding a new ThreadKind without a preview branch fails at compile time.
+      const _exhaustive: never = thread.kind;
+      return null;
+    }
+  }
+}
+
 export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: (id: string) => void }) {
   const theme = threadTheme(thread.tag);
   return (
@@ -155,16 +206,7 @@ export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: (id: st
         </View>
       </View>
       <Text style={{ fontSize: 12.5, color: Colors.textDim, fontWeight: '500' }}>{thread.timeAgo}</Text>
-      {!thread.locked && (
-        <>
-          {thread.kind === 'checklist' && <MorningPreview thread={thread} />}
-          {thread.kind === 'focus' && <FocusPreview thread={thread} />}
-          {thread.kind === 'focus-title' && <FocusTitlePreview thread={thread} />}
-          {thread.kind === 'workout' && <WorkoutPreview thread={thread} />}
-          {thread.kind === 'food' && <FoodPreview thread={thread} />}
-          {thread.kind === 'note' && <NotePreview thread={thread} />}
-        </>
-      )}
+      {!thread.locked && renderPreview(thread)}
     </Pressable>
   );
 }

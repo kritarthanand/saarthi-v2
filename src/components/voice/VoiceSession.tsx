@@ -55,6 +55,10 @@ export function VoiceSession({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [partial, setPartial] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+  // Persist transcript-typer position across effect tear-downs (e.g. opening the hashtag
+  // picker mid-stream). Without this, re-running the effect rewinds `i` to 0 and the
+  // partial bubble blanks out.
+  const cursorRef = useRef<{ lineIdx: number; i: number }>({ lineIdx: 0, i: 0 });
 
   const tagTheme = hashtag ? threadTheme(hashtag) : { color: accent, dim: accent + '24', glyph: '✦' };
 
@@ -96,10 +100,16 @@ export function VoiceSession({
 
     const next = SIM_USER_LINES[lineIdx];
     if (!next) return;
-    let i = 0;
+    // Resume from where the previous tear-down left off if we're still on the same line.
+    if (cursorRef.current.lineIdx !== lineIdx) {
+      cursorRef.current = { lineIdx, i: 0 };
+    }
+    let i = cursorRef.current.i;
+    if (i > 0) setPartial(next.slice(0, i));
     const tick = setInterval(() => {
       if (cancelled) return;
       i += 2;
+      cursorRef.current.i = i;
       setPartial(next.slice(0, i));
       if (i >= next.length) {
         clearInterval(tick);
@@ -107,6 +117,7 @@ export function VoiceSession({
           if (cancelled) return;
           setMessages((m) => [...m, { from: 'me', text: next }]);
           setPartial('');
+          cursorRef.current = { lineIdx: lineIdx + 1, i: 0 };
         }, 250);
       }
     }, 60);

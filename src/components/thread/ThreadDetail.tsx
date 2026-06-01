@@ -12,6 +12,28 @@ import { MorningSummary } from './MorningSummary';
 import { NoteSummary } from './NoteSummary';
 import { ThreadChatTab } from './ThreadChatTab';
 
+function renderSummary(thread: Thread, toggleItem: (id: string) => void, openChat: () => void) {
+  switch (thread.kind) {
+    case 'checklist':
+      return <MorningSummary thread={thread} onItemToggle={toggleItem} onItemChat={openChat} />;
+    case 'focus':
+    case 'focus-title':
+    case 'workout':
+    case 'food':
+    case 'evening':
+    case 'fitness':
+      // Fitness/evening reuse the focus layout until they get bespoke summaries — the prototype's
+      // FitnessSummary (activity rings, metric grid) isn't ported in this PR.
+      return <FocusSummary thread={thread} onItemToggle={toggleItem} />;
+    case 'note':
+      return <NoteSummary thread={thread} />;
+    default: {
+      const _exhaustive: never = thread.kind;
+      return null;
+    }
+  }
+}
+
 export function ThreadDetail({
   threadId,
   customThreads = [],
@@ -132,17 +154,9 @@ export function ThreadDetail({
 
       {/* Content */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 170 }}>
-        {tab === 'summary' && thread.kind === 'checklist' && (
-          <MorningSummary thread={thread} onItemToggle={toggleItem} onItemChat={() => setTab('chat')} />
-        )}
-        {tab === 'summary' &&
-          (thread.kind === 'focus' ||
-            thread.kind === 'focus-title' ||
-            thread.kind === 'workout' ||
-            thread.kind === 'food' ||
-            thread.kind === 'evening') && <FocusSummary thread={thread} onItemToggle={toggleItem} />}
-        {tab === 'summary' && thread.kind === 'note' && <NoteSummary thread={thread} />}
-        {tab === 'chat' && <ThreadChatTab thread={thread} />}
+        {tab === 'summary'
+          ? renderSummary(thread, toggleItem, () => setTab('chat'))
+          : <ThreadChatTab thread={thread} />}
       </ScrollView>
 
       {/* Composer */}

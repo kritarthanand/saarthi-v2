@@ -67,9 +67,11 @@ CREATE POLICY v2_thread_messages_user_rls ON v2_thread_messages
   );
 
 -- ── updated_at trigger ──────────────────────────────────────────────────────
--- V1 already defined set_updated_at(); reuse if present, otherwise create.
+-- Named `v2_set_updated_at` to avoid coupling to V1's `set_updated_at()`;
+-- if their bodies ever diverge, a CREATE OR REPLACE on the shared name would
+-- silently change V1 behavior.
 
-CREATE OR REPLACE FUNCTION set_updated_at()
+CREATE OR REPLACE FUNCTION v2_set_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
   NEW.updated_at = now();
@@ -79,7 +81,7 @@ $$;
 
 CREATE TRIGGER v2_threads_set_updated_at
   BEFORE UPDATE ON v2_threads
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION v2_set_updated_at();
 
 -- ── last_message_at bump trigger ────────────────────────────────────────────
 

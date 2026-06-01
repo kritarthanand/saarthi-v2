@@ -9,6 +9,10 @@ export default function ThreadsScreen() {
   const [threads, setThreads] = useState<Thread[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // TODO: subscribe to supabase.auth.onAuthStateChange and refetch when the
+  // session arrives — today this fires once on mount, so before auth lands
+  // (or before sign-in completes) RLS will return zero rows and the screen
+  // is stuck on the empty state.
   useEffect(() => {
     let mounted = true;
     (async () => {

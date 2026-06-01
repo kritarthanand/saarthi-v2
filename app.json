@@ -1,18 +1,21 @@
 {
   "expo": {
-    "name": "V2",
-    "slug": "V2",
+    "name": "Saarthi",
+    "slug": "saarthi",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "v2",
-    "userInterfaceStyle": "automatic",
+    "scheme": "saarthi",
+    "userInterfaceStyle": "dark",
     "ios": {
+      "bundleIdentifier": "com.saarthi.app",
+      "supportsTablet": true,
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.saarthi.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -28,7 +31,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#000000",
           "android": {
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76

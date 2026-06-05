@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
@@ -83,7 +83,9 @@ export function ThreadDetail({
   const fixtureBundle = template != null ? getFixtureBundle(thread.tag) : null;
   const activeFixtureEntry = fixtureBundle?.entries.find((e) => e.status === 'active') ?? null;
 
-  // Local mutable state for ritual thread items and messages
+  // Local mutable state for ritual thread items and messages.
+  // Seed from fixture on first mount; reset when the thread prop changes (e.g. iPad embedded pane
+  // switching from #MorningRitual to #EveningRitual without remounting ThreadDetail).
   const [localItems, setLocalItems] = useState<EntryItem[]>(() => {
     if (!fixtureBundle || !activeFixtureEntry) return [];
     return fixtureBundle.items.filter((i) => i.entry_id === activeFixtureEntry.id);
@@ -92,6 +94,17 @@ export function ThreadDetail({
     if (!fixtureBundle || !activeFixtureEntry) return [];
     return fixtureBundle.messages.filter((m) => m.entry_id === activeFixtureEntry.id);
   });
+
+  useEffect(() => {
+    if (!fixtureBundle || !activeFixtureEntry) {
+      setLocalItems([]);
+      setLocalMessages([]);
+      return;
+    }
+    setLocalItems(fixtureBundle.items.filter((i) => i.entry_id === activeFixtureEntry.id));
+    setLocalMessages(fixtureBundle.messages.filter((m) => m.entry_id === activeFixtureEntry.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread.id]);
 
   const handleRitualToggle = (itemId: string, done: boolean) => {
     setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done } : i)));
@@ -114,8 +127,10 @@ export function ThreadDetail({
     onSendMessage(text);
   };
 
-  const handleSuggestionChoice = (_msg: EntryMessage, chipLabel: string) => {
+  const handleSuggestionChoice = (msg: EntryMessage, chipLabel: string) => {
     onSendMessage(chipLabel);
+    // Remove the suggestion so the chip row disappears after a choice is made
+    setLocalMessages((prev) => prev.filter((m) => m.id !== msg.id));
   };
 
   const closedEntries = fixtureBundle?.entries.filter((e) => e.status === 'closed') ?? [];
@@ -324,7 +339,9 @@ export function ThreadDetail({
                               key={entry.id}
                               onPress={() => {
                                 setHistoryOpen(false);
-                                setPreviewEntry(entry);
+                                // Wait for the dismiss slide animation before opening the preview
+                                // so both modals don't animate simultaneously (visually jarring).
+                                setTimeout(() => setPreviewEntry(entry), 350);
                               }}
                               style={{
                                 flexDirection: 'row', alignItems: 'center',

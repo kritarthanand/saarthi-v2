@@ -19,6 +19,9 @@ export function EveningRitualSummary({
     (item) => item.done || messages.some((m) => m.item_ref === item.id && m.role === 'user'),
   ).length;
 
+  // Single expanded prompt at a time — avoids competing autoFocus calls
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   return (
     <View style={{ paddingHorizontal: 16, paddingVertical: 4, paddingBottom: 24, gap: 14 }}>
       {/* Header strip */}
@@ -49,7 +52,18 @@ export function EveningRitualSummary({
               color={theme.color}
               readOnly={readOnly}
               messages={itemMessages}
-              onSend={!readOnly && onSendMessage ? (text) => onSendMessage(text, item.id) : undefined}
+              expanded={expandedId === item.id}
+              onToggleExpand={() =>
+                setExpandedId((id) => (id === item.id ? null : item.id))
+              }
+              onSend={
+                !readOnly && onSendMessage
+                  ? (text) => {
+                      onSendMessage(text, item.id);
+                      setExpandedId(null);
+                    }
+                  : undefined
+              }
             />
           );
         })}
@@ -63,15 +77,18 @@ function EveningPromptRow({
   color,
   readOnly,
   messages,
+  expanded,
+  onToggleExpand,
   onSend,
 }: {
   item: EntryItem;
   color: string;
   readOnly: boolean;
   messages: EntryMessage[];
+  expanded: boolean;
+  onToggleExpand: () => void;
   onSend?: (text: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState('');
 
   const userAnswer = messages.find((m) => m.role === 'user');
@@ -81,7 +98,6 @@ function EveningPromptRow({
     if (!trimmed || !onSend) return;
     onSend(trimmed);
     setDraft('');
-    setExpanded(false);
   };
 
   return (
@@ -93,7 +109,7 @@ function EveningPromptRow({
       }}
     >
       <Pressable
-        onPress={() => !readOnly && !item.done && setExpanded((v) => !v)}
+        onPress={() => !readOnly && !item.done && onToggleExpand()}
         style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}
       >
         <View
@@ -140,13 +156,14 @@ function EveningPromptRow({
             <TextInput
               value={draft}
               onChangeText={setDraft}
+              // Removed `multiline` — it silences `onSubmitEditing` on iOS.
+              // Evening prompts are short; single-line keeps Return → submit working.
               onSubmitEditing={submit}
               returnKeyType="done"
               placeholder={`reflect on: ${item.label.toLowerCase()}…`}
               placeholderTextColor={Colors.textFaint}
               style={{ flex: 1, color: Colors.text, fontSize: 13 }}
               autoFocus
-              multiline
             />
             <Pressable
               onPress={submit}

@@ -107,8 +107,8 @@ def _assert_entry_owner(db: Client, entry_id: str, user_id: str) -> dict:
     """Return the entry row if it belongs to user_id, else 404."""
     rows = (
         db.table("v2_thread_entries")
-        .select("v2_thread_entries.*, v2_threads!inner(user_id)")
-        .eq("v2_thread_entries.id", entry_id)
+        .select("*, v2_threads!inner(user_id)")
+        .eq("id", entry_id)
         .eq("v2_threads.user_id", user_id)
         .execute()
         .data

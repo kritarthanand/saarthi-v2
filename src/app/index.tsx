@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -16,8 +16,15 @@ import { FloatingMic } from '@/components/voice/FloatingMic';
 import { VoiceSession, type VoiceSavePayload, type VoiceSessionHandle } from '@/components/voice/VoiceSession';
 import { COACHES_BY_ID, type CoachId } from '@/constants/pandavas';
 import { Colors, threadTheme } from '@/constants/theme';
-import type { ChatMessage, Thread } from '@/lib/mockData';
-import { TODAY_THREADS } from '@/lib/mockData';
+import type { Thread } from '@/lib/mockData';
+import { adaptLiveThread } from '@/lib/threadAdapter';
+import { ThreadTemplate } from '@/lib/threads';
+import {
+  useActiveEntries,
+  useSendMessage,
+  useThreads,
+  useToggleItem,
+} from '@/lib/threads.hooks';
 
 type DeviceMode = 'phone' | 'ipad' | 'web';
 
@@ -27,132 +34,116 @@ function detectMode(width: number): DeviceMode {
   return 'phone';
 }
 
-const fmtTime = () =>
-  new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
 export default function AppRoot() {
   const { width } = useWindowDimensions();
   const mode = detectMode(width);
   const insets = useSafeAreaInsets();
 
   const [tab, setTab] = useState<TabId>('today');
-  // Default-open the morning thread on tablet/web so the detail pane isn't empty on first paint.
-  // Frozen at mount on purpose — we don't want a window resize across the phone/iPad breakpoint
-  // to either resurrect a thread the user just closed or trap a phone user in a detail overlay.
-  const [openThreadId, setOpenThreadId] = useState<string | null>(() =>
-    mode === 'phone' ? null : 'morning'
-  );
+  // Default to null; on iPad/web we auto-open the morning ritual once threads load.
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [selectedCoachId, setSelectedCoachId] = useState<CoachId | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
   // Lets the iPad/web backdrop tap delegate to the session's own `finalize` — which
   // saves any captured user lines before closing instead of dropping them.
   const voiceSessionRef = useRef<VoiceSessionHandle>(null);
 
-  // Canonical thread store — toggled items + sent messages live here so they survive
-  // the ThreadDetail remount that `key={openThreadId}` forces in the master-detail view.
-  const [threadsById, setThreadsById] = useState<Record<string, Thread>>(() =>
-    Object.fromEntries(TODAY_THREADS.map((t) => [t.id, t]))
-  );
-  const [threadOrder, setThreadOrder] = useState<string[]>(() => TODAY_THREADS.map((t) => t.id));
+  // ── Live data from Supabase ────────────────────────────────────────────────
+  const { data: liveThreads, refetch: refetchThreads } = useThreads();
+  const { byId: entriesByActiveId, refetch: refetchEntries } = useActiveEntries(liveThreads);
+  const refetchAll = useCallback(() => {
+    refetchThreads();
+    refetchEntries();
+  }, [refetchThreads, refetchEntries]);
+  const toggleItemAsync = useToggleItem();
+  const sendMessageAsync = useSendMessage();
 
-  const threads = useMemo(
-    () => threadOrder.map((id) => threadsById[id]).filter((t): t is Thread => !!t),
-    [threadOrder, threadsById]
-  );
+  // Adapt live { Thread, Entry, items, messages } → legacy `Thread` shape so
+  // TodayView / ChatHistoryView / ThreadDetail can continue consuming it
+  // unchanged for now (they'll migrate next).
+  const threads = useMemo<Thread[]>(() => {
+    if (!liveThreads) return [];
+    return liveThreads.map((t) =>
+      adaptLiveThread(t, t.activeEntryId ? entriesByActiveId[t.activeEntryId] : undefined),
+    );
+  }, [liveThreads, entriesByActiveId]);
 
-  const toggleItem = useCallback((threadId: string, itemId: string) => {
-    setThreadsById((prev) => {
-      const t = prev[threadId];
-      if (!t) return prev;
-      return {
-        ...prev,
-        [threadId]: {
-          ...t,
-          items: t.items.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)),
-        },
-      };
+  // Quick lookup: thread.id → activeEntryId, for mutations.
+  const activeEntryIdByThread = useMemo(() => {
+    const map: Record<string, string> = {};
+    (liveThreads ?? []).forEach((t) => {
+      if (t.activeEntryId) map[t.id] = t.activeEntryId;
     });
-  }, []);
+    return map;
+  }, [liveThreads]);
 
-  const appendMessage = useCallback((threadId: string, msg: ChatMessage) => {
-    setThreadsById((prev) => {
-      const t = prev[threadId];
-      if (!t) return prev;
-      return {
-        ...prev,
-        [threadId]: {
-          ...t,
-          appendedMessages: [...(t.appendedMessages || []), msg],
-        },
-      };
-    });
-  }, []);
+  // First-load: auto-open morning ritual on iPad/web so the detail pane isn't empty.
+  // Only fires once per session — won't reopen after the user explicitly closes a thread.
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (mode === 'phone') return;
+    if (!liveThreads || liveThreads.length === 0) return;
+    autoOpenedRef.current = true;
+    const morning = liveThreads.find((t) => t.template === ThreadTemplate.MorningRitual);
+    setOpenThreadId(morning?.id ?? liveThreads[0]!.id);
+  }, [liveThreads, mode]);
+
+  // ── Mutations: fire API, then refetch authoritative state ──────────────────
+  const toggleItem = useCallback(
+    async (threadId: string, itemId: string) => {
+      const thread = threads.find((t) => t.id === threadId);
+      const item = thread?.items.find((i) => i.id === itemId);
+      if (!item) return;
+      try {
+        await toggleItemAsync(itemId, !item.done);
+        refetchAll();
+      } catch (e) {
+        console.error('toggleItem failed', e);
+      }
+    },
+    [threads, toggleItemAsync, refetchAll],
+  );
 
   const handleSendMessage = useCallback(
-    (threadId: string, text: string) => {
-      appendMessage(threadId, { from: 'me', text, time: fmtTime() });
+    async (threadId: string, text: string) => {
+      const entryId = activeEntryIdByThread[threadId];
+      if (!entryId) return;
+      try {
+        await sendMessageAsync(entryId, text);
+        refetchAll();
+      } catch (e) {
+        console.error('sendMessage failed', e);
+      }
     },
-    [appendMessage]
+    [activeEntryIdByThread, sendMessageAsync, refetchAll],
   );
 
   const handleItemMessage = useCallback(
-    (threadId: string, itemLabel: string, text: string) => {
-      // Keep `text` as the raw user input; `itemRef` carries the context so the chat
-      // renderer can show a small "re: <label>" chip above the bubble instead of
-      // embedding the label inside the message body.
-      appendMessage(threadId, { from: 'me', text, time: fmtTime(), itemRef: itemLabel });
+    async (threadId: string, itemLabel: string, text: string) => {
+      const entryId = activeEntryIdByThread[threadId];
+      if (!entryId) return;
+      // Legacy callback identifies the item by label; look up its id from the
+      // adapter-built items list so we can pass `item_ref` through.
+      const thread = threads.find((t) => t.id === threadId);
+      const item = thread?.items.find((i) => i.label === itemLabel);
+      try {
+        await sendMessageAsync(entryId, text, item?.id);
+        refetchAll();
+      } catch (e) {
+        console.error('itemMessage failed', e);
+      }
     },
-    [appendMessage]
+    [threads, activeEntryIdByThread, sendMessageAsync, refetchAll],
   );
 
-  const handleSave = ({ tag, messages, elapsed }: VoiceSavePayload) => {
-    const userMsgs = messages.filter((m) => m.from === 'me');
-    if (userMsgs.length === 0) return;
+  // Voice "note" flow: ad-hoc notes don't yet have a template. Stub until that
+  // path is designed; for now, log a warning so we know the capture was dropped.
+  const handleSave = useCallback((_payload: VoiceSavePayload) => {
+    console.warn('Voice save dropped — note template not yet wired.');
+  }, []);
 
-    // Stamp clock times so the chat tab doesn't render "undefined".
-    const stamped = userMsgs.map((m) => ({ ...m, time: m.time ?? fmtTime() }));
-
-    // Capturing into an existing tag should *append* to that thread, not fork a new
-    // duplicate-tag note next to it. Look up the live thread by tag; only fall through
-    // to the new-note path when nothing matches.
-    const existingId = threadOrder.find((id) => threadsById[id]?.tag === tag);
-    if (existingId) {
-      setThreadsById((prev) => {
-        const t = prev[existingId];
-        if (!t) return prev;
-        return {
-          ...prev,
-          [existingId]:
-            t.kind === 'note'
-              ? { ...t, messages: [...(t.messages || []), ...stamped] }
-              : { ...t, appendedMessages: [...(t.appendedMessages || []), ...stamped] },
-        };
-      });
-      setTab('today');
-      setOpenThreadId(existingId);
-      return;
-    }
-
-    const createdAt = Date.now();
-    const id = 'note-' + createdAt;
-    const newThread: Thread = {
-      id, tag, kind: 'note',
-      // Fallback strings only render when `createdAt` is missing; live label is computed
-      // via `timeAgoFor` / `subtitleFor` against `createdAt`.
-      subtitle: `${userMsgs.length} thoughts · just now`,
-      timeAgo: 'just now',
-      createdAt,
-      messages, elapsed, items: [],
-      pointsEarned: 0, pointsTotal: 0,
-      preview: userMsgs.slice(0, 2).map((m) => m.text),
-    };
-    setThreadsById((prev) => ({ ...prev, [id]: newThread }));
-    setThreadOrder((prev) => [id, ...prev]);
-    setTab('today');
-    setOpenThreadId(id);
-  };
-
-  const openThread = openThreadId ? threadsById[openThreadId] : undefined;
+  const openThread = openThreadId ? threads.find((t) => t.id === openThreadId) : undefined;
   const activeAccent = openThread ? threadTheme(openThread.tag).color : Colors.accent;
   const coachDetailOpen = tab === 'coaches' && !!selectedCoachId;
 

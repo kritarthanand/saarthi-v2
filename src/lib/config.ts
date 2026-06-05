@@ -18,8 +18,16 @@ export function getDefaultProxyUrl(): string {
 }
 
 export async function getProxyUrl(): Promise<string> {
-  const stored = await AsyncStorage.getItem(PROXY_URL_KEY);
-  return stored && stored.trim() ? stored : DEFAULT_PROXY_URL;
+  try {
+    const stored = await AsyncStorage.getItem(PROXY_URL_KEY);
+    return stored && stored.trim() ? stored : DEFAULT_PROXY_URL;
+  } catch (e) {
+    // AsyncStorage throws "Native module is null" when running in a worktree
+    // with symlinked node_modules (the iOS native binary is registered against
+    // the main repo's build) — fall back so the UI can still hit the dev API.
+    console.warn('getProxyUrl: AsyncStorage unavailable, using default', e);
+    return DEFAULT_PROXY_URL;
+  }
 }
 
 export async function setProxyUrl(url: string): Promise<void> {

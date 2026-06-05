@@ -104,7 +104,7 @@ function toMessage(w: WireMessage): EntryMessage {
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const base = await getProxyUrl();
   const res = await fetch(`${base}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -195,6 +195,16 @@ export function useEntry(entryId: string): {
   const rev = useRef(0);
 
   const fetch = useCallback(() => {
+    if (!entryId) {
+      // No active entry yet — clear stale state and bail. Avoids 404s during
+      // the brief window between thread-list-load and entry-load.
+      setEntry(null);
+      setItems([]);
+      setMessages([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     const tick = ++rev.current;
     setLoading(true);
     setError(null);
@@ -212,6 +222,67 @@ export function useEntry(entryId: string): {
   useEffect(() => { fetch(); }, [fetch]);
 
   return { entry, items, messages, loading, error, refetch: fetch };
+}
+
+/**
+ * Loads the active entry (with items + messages) for each thread in `threads`,
+ * in parallel. Returns a map keyed by entry id. Re-fetches when the active-entry
+ * id of any thread changes — call `refetch()` after a mutation to refresh.
+ */
+export function useActiveEntries(threads: Thread[] | null): {
+  byId: Record<string, { entry: Entry; items: EntryItem[]; messages: EntryMessage[] }>;
+  loading: boolean;
+  error: Error | null;
+  refetch: () => void;
+} {
+  const [byId, setById] = useState<Record<string, { entry: Entry; items: EntryItem[]; messages: EntryMessage[] }>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const rev = useRef(0);
+
+  // Stable key so we re-fetch on activeEntryId churn, not on every threads-array identity change.
+  const activeIdsKey = (threads ?? [])
+    .map((t) => t.activeEntryId ?? '')
+    .join(',');
+
+  const fetch = useCallback(() => {
+    if (!threads) return;
+    const ids = threads.map((t) => t.activeEntryId).filter((x): x is string => !!x);
+    if (ids.length === 0) {
+      setById({});
+      return;
+    }
+    const tick = ++rev.current;
+    setLoading(true);
+    setError(null);
+    Promise.all(
+      ids.map((id) =>
+        apiFetch<{ entry: WireEntry; items: WireItem[]; messages: WireMessage[] }>(`/entries/${id}`),
+      ),
+    )
+      .then((bundles) => {
+        if (rev.current !== tick) return;
+        const map: Record<string, { entry: Entry; items: EntryItem[]; messages: EntryMessage[] }> = {};
+        bundles.forEach((b, i) => {
+          map[ids[i]] = {
+            entry: toEntry(b.entry),
+            items: b.items.map(toItem),
+            messages: b.messages.map(toMessage),
+          };
+        });
+        setById(map);
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (rev.current !== tick) return;
+        setError(e);
+        setLoading(false);
+      });
+  }, [activeIdsKey]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { fetch(); }, [fetch]);
+
+  return { byId, loading, error, refetch: fetch };
 }
 
 // ── Mutation hooks ────────────────────────────────────────────────────────────

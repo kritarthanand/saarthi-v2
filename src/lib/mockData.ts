@@ -232,6 +232,16 @@ export const TODAY_THREADS: Thread[] = [
     pointsTotal: 18,
   },
   {
+    id: 'weekly',
+    tag: '#WeeklyRitual',
+    subtitle: 'Jun 1–7',
+    kind: 'checklist',
+    timeAgo: 'started Mon Jun 2',
+    items: [],
+    pointsEarned: 0,
+    pointsTotal: 0,
+  },
+  {
     id: 'evening',
     tag: '#EveningReview',
     subtitle: 'wind-down + reflect',

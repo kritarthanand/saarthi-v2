@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
@@ -13,7 +13,10 @@ import { SaarthiLogo } from '../SaarthiLogo';
 import { FocusSummary } from './FocusSummary';
 import { MorningSummary } from './MorningSummary';
 import { NoteSummary } from './NoteSummary';
+import { ThreadChat } from './ThreadChat';
 import { ThreadChatTab } from './ThreadChatTab';
+
+let _localMsgId = 0;
 
 function groupEntriesByDate(entries: Entry[]): Array<{ label: string; entries: Entry[] }> {
   const now = new Date();
@@ -95,14 +98,29 @@ export function ThreadDetail({
     return fixtureBundle.messages.filter((m) => m.entry_id === activeFixtureEntry.id);
   });
 
+  const [loadedEntryIds, setLoadedEntryIds] = useState<string[]>(() => {
+    if (!fixtureBundle || !activeFixtureEntry) return [];
+    return [activeFixtureEntry.id];
+  });
+  const [chatLocalMessages, setChatLocalMessages] = useState<EntryMessage[]>(() =>
+    fixtureBundle ? fixtureBundle.messages : [],
+  );
+  const [sentCount, setSentCount] = useState(0);
+
   useEffect(() => {
     if (!fixtureBundle || !activeFixtureEntry) {
       setLocalItems([]);
       setLocalMessages([]);
+      setLoadedEntryIds([]);
+      setChatLocalMessages([]);
+      setSentCount(0);
       return;
     }
     setLocalItems(fixtureBundle.items.filter((i) => i.entry_id === activeFixtureEntry.id));
     setLocalMessages(fixtureBundle.messages.filter((m) => m.entry_id === activeFixtureEntry.id));
+    setLoadedEntryIds([activeFixtureEntry.id]);
+    setChatLocalMessages(fixtureBundle.messages);
+    setSentCount(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread.id]);
 
@@ -134,6 +152,58 @@ export function ThreadDetail({
   };
 
   const closedEntries = fixtureBundle?.entries.filter((e) => e.status === 'closed') ?? [];
+
+  const chatEntries = useMemo(() => {
+    if (!fixtureBundle) return [];
+    return fixtureBundle.entries
+      .filter((e) => loadedEntryIds.includes(e.id))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [fixtureBundle, loadedEntryIds]);
+
+  const messagesByEntry = useMemo(() => {
+    const map: Record<string, EntryMessage[]> = {};
+    for (const msg of chatLocalMessages) {
+      if (!map[msg.entry_id]) map[msg.entry_id] = [];
+      map[msg.entry_id].push(msg);
+    }
+    return map;
+  }, [chatLocalMessages]);
+
+  const handleChatSend = useCallback(async (text: string, itemRef?: string) => {
+    const msg: EntryMessage = {
+      id: `local-${++_localMsgId}`,
+      entry_id: activeFixtureEntry?.id ?? '',
+      role: 'user',
+      text,
+      item_ref: itemRef ?? null,
+      meta: {},
+      created_at: new Date().toISOString(),
+    };
+    setChatLocalMessages((prev) => [...prev, msg]);
+    setSentCount((c) => c + 1);
+    onSendMessage(text);
+  }, [activeFixtureEntry?.id, onSendMessage]);
+
+  const handleLoadOlderEntry = useCallback(() => {
+    if (!fixtureBundle) return;
+    setLoadedEntryIds((prevIds) => {
+      const notLoaded = fixtureBundle.entries
+        .map((e) => e.id)
+        .filter((id) => !prevIds.includes(id));
+      if (notLoaded.length === 0) return prevIds;
+      const nextId = notLoaded[0];
+      setChatLocalMessages((prevMsgs) => {
+        const existing = new Set(prevMsgs.map((m) => m.id));
+        const toAdd = fixtureBundle.messages.filter(
+          (m) => m.entry_id === nextId && !existing.has(m.id),
+        );
+        return toAdd.length > 0 ? [...prevMsgs, ...toAdd] : prevMsgs;
+      });
+      return [...prevIds, nextId];
+    });
+  }, [fixtureBundle]);
+
+  const useNewChat = tab === 'chat' && fixtureBundle !== null;
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
@@ -247,37 +317,52 @@ export function ThreadDetail({
       </View>
 
       {/* Content */}
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 170 }}
-        keyboardShouldPersistTaps="handled"
-      >
-        {tab === 'summary'
-          ? renderSummary(
-              thread,
-              template,
-              activeFixtureEntry,
-              localItems,
-              localMessages,
-              handleRitualToggle,
-              handleRitualSend,
-              handleSuggestionChoice,
-              onToggleItem,
-              () => setTab('chat'),
-              onItemMessage,
-            )
-          : <ThreadChatTab thread={thread} />}
-      </ScrollView>
+      {useNewChat && fixtureBundle ? (
+        <ThreadChat
+          thread={fixtureBundle.thread}
+          entries={chatEntries}
+          messagesByEntry={messagesByEntry}
+          onSend={handleChatSend}
+          onLoadOlderEntry={handleLoadOlderEntry}
+          onMic={onMic}
+          bottomInset={bottomInset}
+          sentCount={sentCount}
+        />
+      ) : (
+        <>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 170 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            {tab === 'summary'
+              ? renderSummary(
+                  thread,
+                  template,
+                  activeFixtureEntry,
+                  localItems,
+                  localMessages,
+                  handleRitualToggle,
+                  handleRitualSend,
+                  handleSuggestionChoice,
+                  onToggleItem,
+                  () => setTab('chat'),
+                  onItemMessage,
+                )
+              : <ThreadChatTab thread={thread} />}
+          </ScrollView>
 
-      {/* Composer */}
-      <Composer
-        accent={theme.color}
-        hashtag={thread.tag}
-        placeholder={tab === 'summary' ? `add to ${thread.tag}…` : 'Message Saarthi…'}
-        paddingBottom={Math.max(bottomInset, 12) + 16}
-        onSend={onSendMessage}
-        onMic={onMic}
-      />
+          {/* Composer */}
+          <Composer
+            accent={theme.color}
+            hashtag={thread.tag}
+            placeholder={tab === 'summary' ? `add to ${thread.tag}…` : 'Message Saarthi…'}
+            paddingBottom={Math.max(bottomInset, 12) + 16}
+            onSend={onSendMessage}
+            onMic={onMic}
+          />
+        </>
+      )}
 
       {/* History sheet */}
       {fixtureBundle && (

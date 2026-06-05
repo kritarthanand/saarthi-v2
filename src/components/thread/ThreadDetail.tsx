@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { liveMessageCount, subtitleFor, THREAD_CHATS, type Thread } from '@/lib/mockData';
+import { subtitleFor, type Thread } from '@/lib/mockData';
 import { TAG_TO_TEMPLATE, TEMPLATE_REGISTRY } from '@/lib/threadTemplates';
-import { getFixtureBundle } from '@/lib/threads.fixture';
 import type { Entry, EntryItem, EntryMessage, ThreadTemplate } from '@/lib/threads';
+import { apiFetch, useEntry, useThread } from '@/lib/threads.hooks';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
 import { BackIcon, ChevRightIcon, DotsIcon } from '../icons';
@@ -79,53 +79,64 @@ export function ThreadDetail({
   const [previewEntry, setPreviewEntry] = useState<Entry | null>(null);
 
   const theme = threadTheme(thread.tag);
-  const chatCount = liveMessageCount(thread, THREAD_CHATS);
 
   // Detect ritual template by tag
   const template = TAG_TO_TEMPLATE[thread.tag];
-  const fixtureBundle = template != null ? getFixtureBundle(thread.tag) : null;
-  const activeFixtureEntry = fixtureBundle?.entries.find((e) => e.status === 'active') ?? null;
 
-  // Local mutable state for ritual thread items and messages.
-  // Seed from fixture on first mount; reset when the thread prop changes (e.g. iPad embedded pane
-  // switching from #MorningRitual to #EveningRitual without remounting ThreadDetail).
-  const [localItems, setLocalItems] = useState<EntryItem[]>(() => {
-    if (!fixtureBundle || !activeFixtureEntry) return [];
-    return fixtureBundle.items.filter((i) => i.entry_id === activeFixtureEntry.id);
-  });
-  const [localMessages, setLocalMessages] = useState<EntryMessage[]>(() => {
-    if (!fixtureBundle || !activeFixtureEntry) return [];
-    return fixtureBundle.messages.filter((m) => m.entry_id === activeFixtureEntry.id);
-  });
-
-  const [loadedEntryIds, setLoadedEntryIds] = useState<string[]>(() => {
-    if (!fixtureBundle || !activeFixtureEntry) return [];
-    return [activeFixtureEntry.id];
-  });
-  const [chatLocalMessages, setChatLocalMessages] = useState<EntryMessage[]>(() =>
-    fixtureBundle ? fixtureBundle.messages : [],
+  // Live data for ritual threads — entries from the thread record, items+messages
+  // from the active entry. For non-ritual (legacy) threads we don't fetch.
+  const { thread: liveThread, entries: liveEntries } = useThread(template != null ? thread.id : '');
+  const activeEntry = useMemo(
+    () => liveEntries.find((e) => e.status === 'active') ?? null,
+    [liveEntries],
   );
+  const { items: liveActiveItems, messages: liveActiveMessages, refetch: refetchActiveEntry } =
+    useEntry(activeEntry?.id ?? '');
+
+  // Locally-mutable copies seeded from the live fetch. Optimistic toggles + sends
+  // mutate these; we then refire the parent's API call + refetch the authoritative
+  // state. Reset whenever the thread or active entry changes.
+  const [localItems, setLocalItems] = useState<EntryItem[]>([]);
+  const [localMessages, setLocalMessages] = useState<EntryMessage[]>([]);
+  useEffect(() => {
+    setLocalItems(liveActiveItems);
+  }, [liveActiveItems]);
+  useEffect(() => {
+    setLocalMessages(liveActiveMessages);
+  }, [liveActiveMessages]);
+
+  // Chat-scroll state: which entries have been pulled in, plus a merged
+  // messages-by-entry map (so the new ThreadChat can lazy-load older sessions).
+  const [loadedEntryIds, setLoadedEntryIds] = useState<string[]>([]);
+  const [loadedEntryMessages, setLoadedEntryMessages] = useState<Record<string, EntryMessage[]>>({});
+  // Items per closed entry, lazy-loaded when the history sheet opens. Active items
+  // come from liveActiveItems / localItems and aren't keyed here.
+  const [loadedEntryItems, setLoadedEntryItems] = useState<Record<string, EntryItem[]>>({});
   const [sentCount, setSentCount] = useState(0);
 
+  // Seed the chat scroll with the active entry's messages once they load.
   useEffect(() => {
-    if (!fixtureBundle || !activeFixtureEntry) {
-      setLocalItems([]);
-      setLocalMessages([]);
-      setLoadedEntryIds([]);
-      setChatLocalMessages([]);
-      setSentCount(0);
-      return;
-    }
-    setLocalItems(fixtureBundle.items.filter((i) => i.entry_id === activeFixtureEntry.id));
-    setLocalMessages(fixtureBundle.messages.filter((m) => m.entry_id === activeFixtureEntry.id));
-    setLoadedEntryIds([activeFixtureEntry.id]);
-    setChatLocalMessages(fixtureBundle.messages);
+    if (!activeEntry) return;
+    setLoadedEntryIds((prev) => (prev.includes(activeEntry.id) ? prev : [activeEntry.id, ...prev]));
+    setLoadedEntryMessages((prev) => ({ ...prev, [activeEntry.id]: liveActiveMessages }));
+  }, [activeEntry, liveActiveMessages]);
+
+  // Reset everything when navigating to a different thread.
+  useEffect(() => {
+    setLoadedEntryIds([]);
+    setLoadedEntryMessages({});
+    setLoadedEntryItems({});
     setSentCount(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread.id]);
 
   const handleRitualToggle = (itemId: string, done: boolean) => {
+    // Optimistic local mutation, then fire the parent's API call. Parent
+    // refetches the global thread list; our own useEntry refetches on next
+    // refetchActiveEntry().
     setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done } : i)));
+    onToggleItem(itemId);
+    // Re-pull active entry shortly after to reconcile with the server's truth.
+    setTimeout(() => refetchActiveEntry(), 250);
   };
 
   const handleRitualSend = (text: string, itemId?: string) => {
@@ -133,7 +144,7 @@ export function ThreadDetail({
       setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done: true } : i)));
       const msg: EntryMessage = {
         id: `local-${Date.now()}`,
-        entry_id: activeFixtureEntry?.id ?? '',
+        entry_id: activeEntry?.id ?? '',
         role: 'user',
         text,
         item_ref: itemId,
@@ -141,69 +152,113 @@ export function ThreadDetail({
         created_at: new Date().toISOString(),
       };
       setLocalMessages((prev) => [...prev, msg]);
+      // Find the item label for the per-prompt-composer callback the parent expects.
+      const item = localItems.find((i) => i.id === itemId);
+      if (item) onItemMessage(item.label, text);
+    } else {
+      onSendMessage(text);
     }
-    onSendMessage(text);
+    setTimeout(() => refetchActiveEntry(), 250);
   };
 
   const handleSuggestionChoice = (msg: EntryMessage, chipLabel: string) => {
     onSendMessage(chipLabel);
     // Remove the suggestion so the chip row disappears after a choice is made
     setLocalMessages((prev) => prev.filter((m) => m.id !== msg.id));
+    setTimeout(() => refetchActiveEntry(), 250);
   };
 
-  const closedEntries = fixtureBundle?.entries.filter((e) => e.status === 'closed') ?? [];
+  const closedEntries = useMemo(
+    () => liveEntries.filter((e) => e.status === 'closed'),
+    [liveEntries],
+  );
 
-  const chatEntries = useMemo(() => {
-    if (!fixtureBundle) return [];
-    return fixtureBundle.entries
-      .filter((e) => loadedEntryIds.includes(e.id))
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [fixtureBundle, loadedEntryIds]);
+  // Pull items + messages for every closed entry the first time the history
+  // sheet opens — needed for the "X of Y done" preview on each row.
+  useEffect(() => {
+    if (!historyOpen) return;
+    const missing = closedEntries.filter((e) => !loadedEntryItems[e.id]);
+    if (missing.length === 0) return;
+    Promise.all(
+      missing.map((e) =>
+        apiFetch<{ entry: Entry; items: EntryItem[]; messages: EntryMessage[] }>(`/entries/${e.id}`),
+      ),
+    )
+      .then((bundles) => {
+        const items: Record<string, EntryItem[]> = {};
+        const messages: Record<string, EntryMessage[]> = {};
+        bundles.forEach((b) => {
+          items[b.entry.id] = b.items;
+          messages[b.entry.id] = b.messages;
+        });
+        setLoadedEntryItems((prev) => ({ ...prev, ...items }));
+        setLoadedEntryMessages((prev) => ({ ...prev, ...messages }));
+      })
+      .catch((e) => console.warn('history-sheet fetch failed', e));
+  }, [historyOpen, closedEntries, loadedEntryItems]);
 
+  const chatEntries = useMemo(
+    () =>
+      liveEntries
+        .filter((e) => loadedEntryIds.includes(e.id))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [liveEntries, loadedEntryIds],
+  );
+
+  // Merge optimistic localMessages over the canonical per-entry map so newly-sent
+  // user messages appear immediately in the chat scroll.
   const messagesByEntry = useMemo(() => {
-    const map: Record<string, EntryMessage[]> = {};
-    for (const msg of chatLocalMessages) {
-      if (!map[msg.entry_id]) map[msg.entry_id] = [];
-      map[msg.entry_id].push(msg);
+    const map: Record<string, EntryMessage[]> = { ...loadedEntryMessages };
+    if (activeEntry) {
+      const merged = [...(map[activeEntry.id] ?? [])];
+      const existing = new Set(merged.map((m) => m.id));
+      for (const msg of localMessages) {
+        if (!existing.has(msg.id)) merged.push(msg);
+      }
+      map[activeEntry.id] = merged;
     }
     return map;
-  }, [chatLocalMessages]);
+  }, [loadedEntryMessages, localMessages, activeEntry]);
+
+  // Live chat-tab badge: total messages across all loaded entries.
+  const chatCount = useMemo(
+    () => Object.values(messagesByEntry).reduce((sum, msgs) => sum + msgs.length, 0),
+    [messagesByEntry],
+  );
 
   const handleChatSend = useCallback(async (text: string, itemRef?: string) => {
+    if (!activeEntry) return;
     const msg: EntryMessage = {
       id: `local-${++_localMsgId}`,
-      entry_id: activeFixtureEntry?.id ?? '',
+      entry_id: activeEntry.id,
       role: 'user',
       text,
       item_ref: itemRef ?? null,
       meta: {},
       created_at: new Date().toISOString(),
     };
-    setChatLocalMessages((prev) => [...prev, msg]);
+    setLocalMessages((prev) => [...prev, msg]);
     setSentCount((c) => c + 1);
     onSendMessage(text);
-  }, [activeFixtureEntry?.id, onSendMessage]);
+    setTimeout(() => refetchActiveEntry(), 250);
+  }, [activeEntry, onSendMessage, refetchActiveEntry]);
 
   const handleLoadOlderEntry = useCallback(() => {
-    if (!fixtureBundle) return;
-    setLoadedEntryIds((prevIds) => {
-      const notLoaded = fixtureBundle.entries
-        .map((e) => e.id)
-        .filter((id) => !prevIds.includes(id));
-      if (notLoaded.length === 0) return prevIds;
-      const nextId = notLoaded[0];
-      setChatLocalMessages((prevMsgs) => {
-        const existing = new Set(prevMsgs.map((m) => m.id));
-        const toAdd = fixtureBundle.messages.filter(
-          (m) => m.entry_id === nextId && !existing.has(m.id),
-        );
-        return toAdd.length > 0 ? [...prevMsgs, ...toAdd] : prevMsgs;
-      });
-      return [...prevIds, nextId];
-    });
-  }, [fixtureBundle]);
+    const notLoaded = liveEntries
+      .map((e) => e.id)
+      .filter((id) => !loadedEntryIds.includes(id));
+    if (notLoaded.length === 0) return;
+    const nextId = notLoaded[0]!;
+    apiFetch<{ entry: Entry; items: EntryItem[]; messages: EntryMessage[] }>(`/entries/${nextId}`)
+      .then((bundle) => {
+        setLoadedEntryIds((prev) => (prev.includes(nextId) ? prev : [...prev, nextId]));
+        setLoadedEntryMessages((prev) => ({ ...prev, [nextId]: bundle.messages }));
+        setLoadedEntryItems((prev) => ({ ...prev, [nextId]: bundle.items }));
+      })
+      .catch((e) => console.warn('load-older-entry failed', e));
+  }, [liveEntries, loadedEntryIds]);
 
-  const useNewChat = tab === 'chat' && fixtureBundle !== null;
+  const useNewChat = tab === 'chat' && template != null && liveThread != null;
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
@@ -317,9 +372,9 @@ export function ThreadDetail({
       </View>
 
       {/* Content */}
-      {useNewChat && fixtureBundle ? (
+      {useNewChat && liveThread ? (
         <ThreadChat
-          thread={fixtureBundle.thread}
+          thread={liveThread}
           entries={chatEntries}
           messagesByEntry={messagesByEntry}
           onSend={handleChatSend}
@@ -339,7 +394,7 @@ export function ThreadDetail({
               ? renderSummary(
                   thread,
                   template,
-                  activeFixtureEntry,
+                  activeEntry,
                   localItems,
                   localMessages,
                   handleRitualToggle,
@@ -364,8 +419,8 @@ export function ThreadDetail({
         </>
       )}
 
-      {/* History sheet */}
-      {fixtureBundle && (
+      {/* History sheet — only for ritual threads */}
+      {template != null && (
         <>
           <Modal
             visible={historyOpen}
@@ -417,7 +472,7 @@ export function ThreadDetail({
                           {group.label}
                         </Text>
                         {group.entries.map((entry) => {
-                          const entryItems = fixtureBundle.items.filter((i) => i.entry_id === entry.id);
+                          const entryItems = loadedEntryItems[entry.id] ?? [];
                           const doneCount = entryItems.filter((i) => i.done).length;
                           return (
                             <Pressable
@@ -487,12 +542,13 @@ export function ThreadDetail({
               <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
                 {previewEntry && template != null && (() => {
                   const { SummaryView } = TEMPLATE_REGISTRY[template];
-                  const entryItems = fixtureBundle.items.filter((i) => i.entry_id === previewEntry.id);
+                  const entryItems = loadedEntryItems[previewEntry.id] ?? [];
+                  const entryMessages = loadedEntryMessages[previewEntry.id] ?? [];
                   return (
                     <SummaryView
                       entry={previewEntry}
                       items={entryItems}
-                      messages={[]}
+                      messages={entryMessages}
                       readOnly
                     />
                   );

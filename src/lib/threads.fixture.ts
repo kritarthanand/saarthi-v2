@@ -198,3 +198,22 @@ const BUNDLE_BY_TAG: Record<string, FixtureBundle> = {
 export function getFixtureBundle(tag: string): FixtureBundle | null {
   return BUNDLE_BY_TAG[tag] ?? null;
 }
+
+// Flat aggregates — used by the seed script and any code that needs all entries/items.
+export const FIXTURE_ENTRIES: Entry[] = [
+  ...FIXTURE_MORNING_ENTRIES,
+  ...FIXTURE_EVENING_ENTRIES,
+  ...FIXTURE_WEEKLY_ENTRIES,
+];
+
+export const FIXTURE_ITEMS: EntryItem[] = [
+  ...FIXTURE_MORNING_ITEMS,
+  ...FIXTURE_EVENING_ITEMS,
+  ...FIXTURE_WEEKLY_ITEMS,
+];
+
+export const FIXTURE_MESSAGES: EntryMessage[] = [
+  ...FIXTURE_MORNING_MESSAGES,
+  ...FIXTURE_EVENING_MESSAGES,
+  ...FIXTURE_WEEKLY_MESSAGES,
+];

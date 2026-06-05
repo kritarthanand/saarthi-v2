@@ -47,6 +47,8 @@ export const THREAD_THEMES: Record<string, ThreadTheme> = {
   '#DeepWork':        { color: '#5B8DEF', dim: 'rgba(91,141,239,0.14)',  glyph: '◆' },
   '#Reading':         { color: '#D9B86E', dim: 'rgba(217,184,110,0.14)', glyph: '✦' },
   '#WeeklyReview':    { color: '#8B7BD9', dim: 'rgba(139,123,217,0.14)', glyph: '✦' },
+  '#EveningRitual':   { color: '#8B7BD9', dim: 'rgba(139,123,217,0.14)', glyph: '☾' },
+  '#WeeklyRitual':    { color: '#8B7BD9', dim: 'rgba(139,123,217,0.14)', glyph: '✦' },
   '#Gratitude':       { color: '#F08A3E', dim: 'rgba(240,138,62,0.14)',  glyph: '✦' },
   '#Hydration':       { color: '#5BC8EF', dim: 'rgba(91,200,239,0.14)',  glyph: '◯' },
   '#Note':            { color: '#E07AA8', dim: 'rgba(224,122,168,0.14)', glyph: '✦' },

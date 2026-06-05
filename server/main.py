@@ -1,16 +1,389 @@
 import os
+from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from supabase import create_client, Client
 
 load_dotenv()
 
 app = FastAPI(title="Saarthi V2", version="0.1.0")
 
+# ── Supabase client ───────────────────────────────────────────────────────────
+
+_supabase: Client | None = None
+
+
+def get_supabase() -> Client:
+    global _supabase
+    if _supabase is None:
+        url = os.environ["SUPABASE_URL"]
+        key = os.environ["SUPABASE_SERVICE_KEY"]
+        _supabase = create_client(url, key)
+    return _supabase
+
+
+# TODO: auth — replace with real user from JWT once auth middleware lands.
+def get_dev_user_id() -> str:
+    uid = os.environ.get("SAARTHI_DEV_USER_ID")
+    if not uid:
+        raise HTTPException(status_code=500, detail="SAARTHI_DEV_USER_ID not set")
+    return uid
+
+
+# ── Pydantic models (mirror src/lib/threads.ts, snake_case on wire) ───────────
+
+class ThreadOut(BaseModel):
+    id: str
+    template: str
+    coach_id: str
+    tag: str
+    title: str
+    active_entry_id: str | None
+    last_entry_at: str | None
+
+
+class EntryOut(BaseModel):
+    id: str
+    thread_id: str
+    status: str
+    label: str | None
+    meta: dict[str, Any]
+    created_at: str
+    closed_at: str | None
+
+
+class EntryItemOut(BaseModel):
+    id: str
+    entry_id: str
+    section: str | None
+    label: str
+    done: bool
+    points: int
+    position: int
+    priority: str | None
+    scheduled: str | None
+    meta: dict[str, Any]
+
+
+class EntryMessageOut(BaseModel):
+    id: str
+    entry_id: str
+    role: str
+    text: str
+    item_ref: str | None
+    meta: dict[str, Any]
+    created_at: str
+
+
+class CreateEntryBody(BaseModel):
+    label: str | None = None
+    meta: dict[str, Any] = {}
+    items: list[dict[str, Any]] = []
+    messages: list[dict[str, Any]] = []
+
+
+class PatchItemBody(BaseModel):
+    done: bool | None = None
+    label: str | None = None
+    points: int | None = None
+    priority: str | None = None
+    scheduled: str | None = None
+    meta: dict[str, Any] | None = None
+
+
+class CreateMessageBody(BaseModel):
+    role: str
+    text: str
+    item_ref: str | None = None
+    meta: dict[str, Any] = {}
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _enrich_thread(thread_row: dict, entries: list[dict]) -> ThreadOut:
+    """Attach active_entry_id and last_entry_at computed from entries."""
+    thread_entries = [e for e in entries if e["thread_id"] == thread_row["id"]]
+    active = next((e for e in thread_entries if e["status"] == "active"), None)
+    last = max(thread_entries, key=lambda e: e["created_at"], default=None)
+    return ThreadOut(
+        id=thread_row["id"],
+        template=thread_row["template"],
+        coach_id=thread_row["coach_id"],
+        tag=thread_row["tag"],
+        title=thread_row.get("title") or thread_row["tag"],
+        active_entry_id=active["id"] if active else None,
+        last_entry_at=last["created_at"] if last else None,
+    )
+
+
+def _row_to_entry(row: dict) -> EntryOut:
+    return EntryOut(
+        id=row["id"],
+        thread_id=row["thread_id"],
+        status=row["status"],
+        label=row.get("label"),
+        meta=row.get("meta") or {},
+        created_at=row["created_at"],
+        closed_at=row.get("closed_at"),
+    )
+
+
+def _row_to_item(row: dict) -> EntryItemOut:
+    return EntryItemOut(
+        id=row["id"],
+        entry_id=row["entry_id"],
+        section=row.get("section"),
+        label=row["label"],
+        done=row.get("done", False),
+        points=row.get("points", 0),
+        position=row.get("position", 0),
+        priority=row.get("priority"),
+        scheduled=row.get("scheduled"),
+        meta=row.get("meta") or {},
+    )
+
+
+def _row_to_message(row: dict) -> EntryMessageOut:
+    return EntryMessageOut(
+        id=row["id"],
+        entry_id=row["entry_id"],
+        role=row["role"],
+        text=row["text"],
+        item_ref=row.get("item_ref"),
+        meta=row.get("meta") or {},
+        created_at=row["created_at"],
+    )
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "saarthi-v2"}
+
+
+# ── Threads ───────────────────────────────────────────────────────────────────
+
+@app.get("/threads", response_model=list[ThreadOut])
+def list_threads(coach_id: str | None = None):
+    # TODO: auth
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    q = db.table("v2_threads").select("*").eq("user_id", user_id)
+    if coach_id:
+        q = q.eq("coach_id", coach_id)
+    threads = q.execute().data
+
+    if not threads:
+        return []
+
+    thread_ids = [t["id"] for t in threads]
+    entries = (
+        db.table("v2_thread_entries")
+        .select("id, thread_id, status, created_at")
+        .in_("thread_id", thread_ids)
+        .execute()
+        .data
+    )
+
+    return [_enrich_thread(t, entries) for t in threads]
+
+
+@app.get("/threads/{thread_id}")
+def get_thread(thread_id: str):
+    # TODO: auth
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    thread_rows = (
+        db.table("v2_threads")
+        .select("*")
+        .eq("id", thread_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
+    if not thread_rows:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    entries_raw = (
+        db.table("v2_thread_entries")
+        .select("*")
+        .eq("thread_id", thread_id)
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+
+    thread_out = _enrich_thread(thread_rows[0], entries_raw)
+    entries_out = [_row_to_entry(e) for e in entries_raw]
+
+    return {"thread": thread_out, "entries": entries_out}
+
+
+# ── Entries ───────────────────────────────────────────────────────────────────
+
+@app.get("/entries/{entry_id}")
+def get_entry(entry_id: str):
+    # TODO: auth — join through thread to validate ownership
+    db = get_supabase()
+
+    entry_rows = (
+        db.table("v2_thread_entries").select("*").eq("id", entry_id).execute().data
+    )
+    if not entry_rows:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    items = (
+        db.table("v2_entry_items")
+        .select("*")
+        .eq("entry_id", entry_id)
+        .order("position")
+        .execute()
+        .data
+    )
+    messages = (
+        db.table("v2_entry_messages")
+        .select("*")
+        .eq("entry_id", entry_id)
+        .order("created_at")
+        .execute()
+        .data
+    )
+
+    return {
+        "entry": _row_to_entry(entry_rows[0]),
+        "items": [_row_to_item(i) for i in items],
+        "messages": [_row_to_message(m) for m in messages],
+    }
+
+
+@app.post("/threads/{thread_id}/entries", response_model=EntryOut, status_code=201)
+def create_entry(thread_id: str, body: CreateEntryBody):
+    # TODO: auth
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    # Verify thread belongs to user
+    thread_rows = (
+        db.table("v2_threads")
+        .select("id")
+        .eq("id", thread_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
+    if not thread_rows:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    # Check for existing active entry (the DB partial unique index enforces this
+    # too, but we surface a friendly 422 before hitting the constraint).
+    active_rows = (
+        db.table("v2_thread_entries")
+        .select("id")
+        .eq("thread_id", thread_id)
+        .eq("status", "active")
+        .execute()
+        .data
+    )
+    if active_rows:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "active_entry_exists",
+                "active_entry_id": active_rows[0]["id"],
+            },
+        )
+
+    row = (
+        db.table("v2_thread_entries")
+        .insert({"thread_id": thread_id, "label": body.label, "meta": body.meta})
+        .execute()
+        .data[0]
+    )
+
+    # Seed items if provided
+    if body.items:
+        db.table("v2_entry_items").insert(
+            [{**item, "entry_id": row["id"]} for item in body.items]
+        ).execute()
+
+    # Seed messages if provided
+    if body.messages:
+        db.table("v2_entry_messages").insert(
+            [{**msg, "entry_id": row["id"]} for msg in body.messages]
+        ).execute()
+
+    return _row_to_entry(row)
+
+
+@app.patch("/entries/{entry_id}/close", response_model=EntryOut)
+def close_entry(entry_id: str):
+    # TODO: auth
+    db = get_supabase()
+
+    import datetime
+
+    rows = (
+        db.table("v2_thread_entries")
+        .update({"status": "closed", "closed_at": datetime.datetime.utcnow().isoformat() + "Z"})
+        .eq("id", entry_id)
+        .eq("status", "active")
+        .execute()
+        .data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Active entry not found")
+    return _row_to_entry(rows[0])
+
+
+# ── Entry items ───────────────────────────────────────────────────────────────
+
+@app.patch("/entry_items/{item_id}", response_model=EntryItemOut)
+def patch_item(item_id: str, body: PatchItemBody):
+    # TODO: auth
+    db = get_supabase()
+
+    patch = body.model_dump(exclude_none=True)
+    if not patch:
+        raise HTTPException(status_code=422, detail="No fields to update")
+
+    rows = (
+        db.table("v2_entry_items").update(patch).eq("id", item_id).execute().data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return _row_to_item(rows[0])
+
+
+# ── Entry messages ────────────────────────────────────────────────────────────
+
+@app.post("/entries/{entry_id}/messages", response_model=EntryMessageOut, status_code=201)
+def create_message(entry_id: str, body: CreateMessageBody):
+    # TODO: auth
+    db = get_supabase()
+
+    if body.role not in ("ai", "user"):
+        raise HTTPException(status_code=422, detail="role must be 'ai' or 'user'")
+
+    row = (
+        db.table("v2_entry_messages")
+        .insert(
+            {
+                "entry_id": entry_id,
+                "role": body.role,
+                "text": body.text,
+                "item_ref": body.item_ref,
+                "meta": body.meta,
+            }
+        )
+        .execute()
+        .data[0]
+    )
+    return _row_to_message(row)
 
 
 if __name__ == "__main__":

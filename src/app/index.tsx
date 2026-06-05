@@ -187,7 +187,22 @@ export default function AppRoot() {
         )}
         {tab === 'profile' && <ProfilePane topInset={phoneTopInset} />}
 
-        {/* Pushed Thread Detail */}
+        {/* Phone coach detail — full-screen overlay above CoachesPane,
+            mirroring the way ThreadDetail overlays the lists. */}
+        {coachDetailOpen && (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Colors.bg }}>
+            <CoachDetail
+              coach={COACHES_BY_ID[selectedCoachId!]}
+              onClose={() => setSelectedCoachId(null)}
+              onOpenThread={setOpenThreadId}
+              topInset={Math.max(insets.top, 12) + 34}
+              bottomInset={Math.max(insets.bottom, 12)}
+            />
+          </View>
+        )}
+
+        {/* Pushed Thread Detail — rendered after CoachDetail so it appears on top
+            when the user navigates to a thread from the coach pane. */}
         {openThread && (
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Colors.bg }}>
             <ThreadDetail
@@ -197,19 +212,6 @@ export default function AppRoot() {
               onItemMessage={(itemLabel, text) => handleItemMessage(openThread.id, itemLabel, text)}
               onClose={() => setOpenThreadId(null)}
               onMic={() => setVoiceOpen(true)}
-              topInset={Math.max(insets.top, 12) + 34}
-              bottomInset={Math.max(insets.bottom, 12)}
-            />
-          </View>
-        )}
-
-        {/* Phone coach detail — full-screen overlay above CoachesPane,
-            mirroring the way ThreadDetail overlays the lists. */}
-        {coachDetailOpen && (
-          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Colors.bg }}>
-            <CoachDetail
-              coach={COACHES_BY_ID[selectedCoachId!]}
-              onClose={() => setSelectedCoachId(null)}
               topInset={Math.max(insets.top, 12) + 34}
               bottomInset={Math.max(insets.bottom, 12)}
             />
@@ -305,6 +307,7 @@ export default function AppRoot() {
             coach={COACHES_BY_ID[selectedCoachId!]}
             embedded
             topInset={28}
+            onOpenThread={setOpenThreadId}
           />
         ) : (
           <EmptyDetail />

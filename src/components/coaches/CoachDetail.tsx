@@ -1,7 +1,10 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
-import { Colors } from '@/constants/theme';
+import { Colors, threadTheme } from '@/constants/theme';
 import type { Coach } from '@/constants/pandavas';
+import { ChevRightIcon } from '@/components/icons';
+import { FIXTURE_THREADS, getFixtureBundle } from '@/lib/threads.fixture';
+import { TODAY_THREADS } from '@/lib/mockData';
 
 // Coach accents are palette hex today but defensively accept rgb()/rgba() too,
 // so a future palette migration to rgba() can't silently break the border.
@@ -43,6 +46,7 @@ export function CoachDetail({
   topInset = 52,
   bottomInset = 0,
   onClose,
+  onOpenThread,
 }: {
   coach: Coach;
   // `embedded` = rendered inside the iPad/web detail pane (no back button, no
@@ -51,7 +55,9 @@ export function CoachDetail({
   topInset?: number;
   bottomInset?: number;
   onClose?: () => void;
+  onOpenThread?: (threadId: string) => void;
 }) {
+  const coachThreads = FIXTURE_THREADS.filter((t) => t.coach_id === coach.id);
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
       {/* Header band — coach's accent color tints the top so each brother
@@ -359,6 +365,68 @@ export function CoachDetail({
           >
             * transcribed from the glass-board photos — readings to confirm.
           </Text>
+        )}
+
+        {/* ── Threads ─────────────────────────────────────────────── */}
+        {coachThreads.length > 0 && (
+          <>
+            <SectionLabel color={coach.accent}>Threads</SectionLabel>
+            <View style={{ gap: 10, marginBottom: 22 }}>
+              {coachThreads.map((t) => {
+                const bundle = getFixtureBundle(t.tag);
+                const activeEntry = bundle?.entries.find((e) => e.status === 'active') ?? null;
+                const activeItems = activeEntry
+                  ? bundle!.items.filter((i) => i.entry_id === activeEntry.id)
+                  : [];
+                const doneCount = activeItems.filter((i) => i.done).length;
+                const tTheme = threadTheme(t.tag);
+                const todayThread = TODAY_THREADS.find((tt) => tt.tag === t.tag);
+                return (
+                  <Pressable
+                    key={t.id}
+                    onPress={() => todayThread && onOpenThread && onOpenThread(todayThread.id)}
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: Colors.bgCard,
+                      borderWidth: 1,
+                      borderColor: Colors.border,
+                      paddingVertical: 14,
+                      paddingHorizontal: 14,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, color: Colors.text, fontWeight: '600' }}>
+                        {t.tag}
+                      </Text>
+                      {activeEntry && (
+                        <Text style={{ fontSize: 12.5, color: Colors.textDim, marginTop: 3 }}>
+                          {activeItems.length > 0
+                            ? `${doneCount} of ${activeItems.length} done`
+                            : activeEntry.label ?? 'Active'}
+                        </Text>
+                      )}
+                    </View>
+                    <View
+                      style={{
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        borderRadius: 999,
+                        backgroundColor: tTheme.dim,
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, color: tTheme.color, fontWeight: '700' }}>
+                        {activeEntry?.label ?? t.title}
+                      </Text>
+                    </View>
+                    <ChevRightIcon size={16} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
         )}
       </ScrollView>
     </View>

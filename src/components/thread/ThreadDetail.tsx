@@ -1,16 +1,54 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
 import { liveMessageCount, subtitleFor, THREAD_CHATS, type Thread } from '@/lib/mockData';
+import { TAG_TO_TEMPLATE, TEMPLATE_REGISTRY } from '@/lib/threadTemplates';
+import { getFixtureBundle } from '@/lib/threads.fixture';
+import type { Entry, EntryItem, EntryMessage, ThreadTemplate } from '@/lib/threads';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
-import { BackIcon, DotsIcon } from '../icons';
+import { BackIcon, ChevRightIcon, DotsIcon } from '../icons';
 import { SaarthiLogo } from '../SaarthiLogo';
 import { FocusSummary } from './FocusSummary';
 import { MorningSummary } from './MorningSummary';
 import { NoteSummary } from './NoteSummary';
 import { ThreadChatTab } from './ThreadChatTab';
+
+function groupEntriesByDate(entries: Entry[]): Array<{ label: string; entries: Entry[] }> {
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const weekAgo = new Date(now);
+  weekAgo.setDate(now.getDate() - 7);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const todayBucket: Entry[] = [];
+  const weekBucket: Entry[] = [];
+  const monthBucket: Entry[] = [];
+  const olderMap = new Map<string, Entry[]>();
+
+  for (const e of entries) {
+    const d = new Date(e.closed_at ?? e.created_at);
+    if (d.toDateString() === todayStr) {
+      todayBucket.push(e);
+    } else if (d >= weekAgo) {
+      weekBucket.push(e);
+    } else if (d >= monthStart) {
+      monthBucket.push(e);
+    } else {
+      const key = d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+      if (!olderMap.has(key)) olderMap.set(key, []);
+      olderMap.get(key)!.push(e);
+    }
+  }
+
+  const groups: Array<{ label: string; entries: Entry[] }> = [];
+  if (todayBucket.length) groups.push({ label: 'Today', entries: todayBucket });
+  if (weekBucket.length) groups.push({ label: 'This week', entries: weekBucket });
+  if (monthBucket.length) groups.push({ label: 'Earlier this month', entries: monthBucket });
+  for (const [label, es] of olderMap) groups.push({ label, entries: es });
+  return groups;
+}
 
 export function ThreadDetail({
   thread,
@@ -20,7 +58,6 @@ export function ThreadDetail({
   onClose,
   onMic,
   topInset = 50,
-  /** Pixels reserved below the composer (safe-area home indicator); 0 in embedded panes. */
   bottomInset = 0,
   embedded = false,
 }: {
@@ -35,10 +72,68 @@ export function ThreadDetail({
   embedded?: boolean;
 }) {
   const [tab, setTab] = useState<'summary' | 'chat'>('summary');
-  const theme = threadTheme(thread.tag);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [previewEntry, setPreviewEntry] = useState<Entry | null>(null);
 
-  // Shared with ChatHistoryView's active-strip count so the two surfaces never drift.
+  const theme = threadTheme(thread.tag);
   const chatCount = liveMessageCount(thread, THREAD_CHATS);
+
+  // Detect ritual template by tag
+  const template = TAG_TO_TEMPLATE[thread.tag];
+  const fixtureBundle = template != null ? getFixtureBundle(thread.tag) : null;
+  const activeFixtureEntry = fixtureBundle?.entries.find((e) => e.status === 'active') ?? null;
+
+  // Local mutable state for ritual thread items and messages.
+  // Seed from fixture on first mount; reset when the thread prop changes (e.g. iPad embedded pane
+  // switching from #MorningRitual to #EveningRitual without remounting ThreadDetail).
+  const [localItems, setLocalItems] = useState<EntryItem[]>(() => {
+    if (!fixtureBundle || !activeFixtureEntry) return [];
+    return fixtureBundle.items.filter((i) => i.entry_id === activeFixtureEntry.id);
+  });
+  const [localMessages, setLocalMessages] = useState<EntryMessage[]>(() => {
+    if (!fixtureBundle || !activeFixtureEntry) return [];
+    return fixtureBundle.messages.filter((m) => m.entry_id === activeFixtureEntry.id);
+  });
+
+  useEffect(() => {
+    if (!fixtureBundle || !activeFixtureEntry) {
+      setLocalItems([]);
+      setLocalMessages([]);
+      return;
+    }
+    setLocalItems(fixtureBundle.items.filter((i) => i.entry_id === activeFixtureEntry.id));
+    setLocalMessages(fixtureBundle.messages.filter((m) => m.entry_id === activeFixtureEntry.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread.id]);
+
+  const handleRitualToggle = (itemId: string, done: boolean) => {
+    setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done } : i)));
+  };
+
+  const handleRitualSend = (text: string, itemId?: string) => {
+    if (itemId) {
+      setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done: true } : i)));
+      const msg: EntryMessage = {
+        id: `local-${Date.now()}`,
+        entry_id: activeFixtureEntry?.id ?? '',
+        role: 'user',
+        text,
+        item_ref: itemId,
+        meta: {},
+        created_at: new Date().toISOString(),
+      };
+      setLocalMessages((prev) => [...prev, msg]);
+    }
+    onSendMessage(text);
+  };
+
+  const handleSuggestionChoice = (msg: EntryMessage, chipLabel: string) => {
+    onSendMessage(chipLabel);
+    // Remove the suggestion so the chip row disappears after a choice is made
+    setLocalMessages((prev) => prev.filter((m) => m.id !== msg.id));
+  };
+
+  const closedEntries = fixtureBundle?.entries.filter((e) => e.status === 'closed') ?? [];
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
@@ -68,8 +163,6 @@ export function ThreadDetail({
             {subtitleFor(thread)}
           </Text>
         </View>
-        {/* Embedded mode (iPad/web master-detail) needs a way back to the EmptyDetail state.
-            The dots slot is unused, so reuse it as the close affordance there. */}
         {embedded ? (
           <Pressable
             accessibilityRole="button"
@@ -83,6 +176,16 @@ export function ThreadDetail({
             }}
           >
             <Text style={{ color: Colors.textDim, fontSize: 18, fontWeight: '500', lineHeight: 20 }}>×</Text>
+          </Pressable>
+        ) : template != null ? (
+          // Ritual threads: gear opens history sheet
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Entry history"
+            onPress={() => setHistoryOpen(true)}
+            style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <DotsIcon size={20} />
           </Pressable>
         ) : (
           <Pressable
@@ -107,6 +210,7 @@ export function ThreadDetail({
       >
         {(['summary', 'chat'] as const).map((id) => {
           const isA = tab === id;
+          // TODO(#007): fold `kind` into template; note threads should register as template: 'note'
           const label = id === 'summary' ? (thread.kind === 'note' ? 'Note' : 'Summary') : 'Chat';
           return (
             <Pressable
@@ -149,12 +253,23 @@ export function ThreadDetail({
         keyboardShouldPersistTaps="handled"
       >
         {tab === 'summary'
-          ? renderSummary(thread, onToggleItem, () => setTab('chat'), onItemMessage)
+          ? renderSummary(
+              thread,
+              template,
+              activeFixtureEntry,
+              localItems,
+              localMessages,
+              handleRitualToggle,
+              handleRitualSend,
+              handleSuggestionChoice,
+              onToggleItem,
+              () => setTab('chat'),
+              onItemMessage,
+            )
           : <ThreadChatTab thread={thread} />}
       </ScrollView>
 
-      {/* Composer — bottom padding tracks the safe-area inset directly; the phone tab bar
-          is hidden when the detail is open so no extra reservation is needed. */}
+      {/* Composer */}
       <Composer
         accent={theme.color}
         hashtag={thread.tag}
@@ -163,16 +278,178 @@ export function ThreadDetail({
         onSend={onSendMessage}
         onMic={onMic}
       />
+
+      {/* History sheet */}
+      {fixtureBundle && (
+        <>
+          <Modal
+            visible={historyOpen}
+            animationType="slide"
+            transparent
+            onRequestClose={() => setHistoryOpen(false)}
+          >
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
+              <View
+                style={{
+                  backgroundColor: Colors.bg,
+                  borderTopLeftRadius: 20, borderTopRightRadius: 20,
+                  maxHeight: '75%',
+                  borderTopColor: Colors.border, borderTopWidth: 1,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: 'row', alignItems: 'center',
+                    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12,
+                    borderBottomColor: Colors.border, borderBottomWidth: 1,
+                  }}
+                >
+                  <Text style={{ flex: 1, color: Colors.text, fontSize: 16, fontWeight: '700' }}>
+                    Entry History
+                  </Text>
+                  <Pressable
+                    onPress={() => setHistoryOpen(false)}
+                    style={{ paddingHorizontal: 4 }}
+                  >
+                    <Text style={{ color: Colors.accent, fontSize: 15, fontWeight: '600' }}>Done</Text>
+                  </Pressable>
+                </View>
+                <ScrollView>
+                  {closedEntries.length === 0 ? (
+                    <View style={{ padding: 32, alignItems: 'center' }}>
+                      <Text style={{ color: Colors.textFaint, fontSize: 13 }}>No past entries yet.</Text>
+                    </View>
+                  ) : (
+                    groupEntriesByDate(closedEntries).map((group) => (
+                      <View key={group.label}>
+                        <Text
+                          style={{
+                            paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6,
+                            fontSize: 11, color: Colors.textFaint,
+                            fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase',
+                          }}
+                        >
+                          {group.label}
+                        </Text>
+                        {group.entries.map((entry) => {
+                          const entryItems = fixtureBundle.items.filter((i) => i.entry_id === entry.id);
+                          const doneCount = entryItems.filter((i) => i.done).length;
+                          return (
+                            <Pressable
+                              key={entry.id}
+                              onPress={() => {
+                                setHistoryOpen(false);
+                                // Wait for the dismiss slide animation before opening the preview
+                                // so both modals don't animate simultaneously (visually jarring).
+                                setTimeout(() => setPreviewEntry(entry), 350);
+                              }}
+                              style={{
+                                flexDirection: 'row', alignItems: 'center',
+                                paddingVertical: 13, paddingHorizontal: 16,
+                                borderBottomColor: Colors.border, borderBottomWidth: 1,
+                              }}
+                            >
+                              <View style={{ flex: 1, gap: 2 }}>
+                                <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '500' }}>
+                                  {entry.label ?? 'Entry'}
+                                </Text>
+                                <Text style={{ color: Colors.textDim, fontSize: 12 }}>
+                                  {doneCount} of {entryItems.length} done
+                                </Text>
+                              </View>
+                              <ChevRightIcon size={16} />
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ))
+                  )}
+                  <View style={{ height: 40 }} />
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Frozen SummaryView for a closed entry */}
+          <Modal
+            visible={previewEntry != null}
+            animationType="slide"
+            onRequestClose={() => setPreviewEntry(null)}
+          >
+            <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+              <View
+                style={{
+                  paddingTop: topInset, paddingHorizontal: 16, paddingBottom: 12,
+                  flexDirection: 'row', alignItems: 'center', gap: 10,
+                  borderBottomColor: Colors.border, borderBottomWidth: 1,
+                }}
+              >
+                <Pressable
+                  onPress={() => setPreviewEntry(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back"
+                  style={{ width: 32, height: 36, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <BackIcon size={22} color={Colors.text} />
+                </Pressable>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>
+                    {previewEntry?.label ?? 'Past Entry'}
+                  </Text>
+                  <Text style={{ color: Colors.textFaint, fontSize: 12, marginTop: 1 }}>read-only</Text>
+                </View>
+              </View>
+              <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+                {previewEntry && template != null && (() => {
+                  const { SummaryView } = TEMPLATE_REGISTRY[template];
+                  const entryItems = fixtureBundle.items.filter((i) => i.entry_id === previewEntry.id);
+                  return (
+                    <SummaryView
+                      entry={previewEntry}
+                      items={entryItems}
+                      messages={[]}
+                      readOnly
+                    />
+                  );
+                })()}
+              </ScrollView>
+            </View>
+          </Modal>
+        </>
+      )}
     </View>
   );
 }
 
 function renderSummary(
   thread: Thread,
+  template: ThreadTemplate | undefined,
+  activeEntry: Entry | null | undefined,
+  localItems: EntryItem[],
+  localMessages: EntryMessage[],
+  onRitualToggle: (itemId: string, done: boolean) => void,
+  onRitualSend: (text: string, itemId?: string) => void,
+  onSuggestionChoice: (msg: EntryMessage, chip: string) => void,
   toggleItem: (id: string) => void,
   openChat: () => void,
   itemMessage: (itemLabel: string, text: string) => void,
 ) {
+  // Ritual thread — dispatch via TEMPLATE_REGISTRY
+  if (template != null && activeEntry != null) {
+    const { SummaryView } = TEMPLATE_REGISTRY[template];
+    return (
+      <SummaryView
+        entry={activeEntry}
+        items={localItems}
+        messages={localMessages}
+        onToggle={onRitualToggle}
+        onSendMessage={onRitualSend}
+        onSuggestionChoice={onSuggestionChoice}
+      />
+    );
+  }
+
+  // Legacy thread kinds — TODO: migrate each to a template as they get bespoke summaries
   switch (thread.kind) {
     case 'checklist':
       return <MorningSummary thread={thread} onItemToggle={toggleItem} onItemChat={openChat} />;
@@ -182,8 +459,6 @@ function renderSummary(
     case 'food':
     case 'evening':
     case 'fitness':
-      // Fitness/evening reuse the focus layout until they get bespoke summaries — the prototype's
-      // FitnessSummary (activity rings, metric grid) isn't ported in this PR.
       return <FocusSummary thread={thread} onItemToggle={toggleItem} onItemMessage={itemMessage} />;
     case 'note':
       return <NoteSummary thread={thread} />;

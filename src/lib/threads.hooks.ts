@@ -112,7 +112,9 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw Object.assign(new Error(body?.detail ?? `HTTP ${res.status}`), { status: res.status, body });
+    const detail = body?.detail;
+    const msg = typeof detail === 'string' ? detail : (detail?.error ?? `HTTP ${res.status}`);
+    throw Object.assign(new Error(msg), { status: res.status, body, detail });
   }
   return res.json() as Promise<T>;
 }

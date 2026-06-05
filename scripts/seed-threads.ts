@@ -211,7 +211,8 @@ async function seed() {
       .select();
     if (entErr) throw new Error(`Entry insert failed (${spec.label}): ${entErr.message}`);
 
-    const entryId = entryRows![0].id;
+    const entryId = entryRows?.[0]?.id;
+    if (!entryId) throw new Error(`Entry insert for "${spec.label}" returned no rows`);
 
     // Insert items
     if (spec.items.length) {

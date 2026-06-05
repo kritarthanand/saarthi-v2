@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 from dotenv import load_dotenv
@@ -100,13 +101,52 @@ class CreateMessageBody(BaseModel):
     meta: dict[str, Any] = {}
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Ownership helpers (service key bypasses RLS — we enforce auth in code) ────
+
+def _assert_entry_owner(db: Client, entry_id: str, user_id: str) -> dict:
+    """Return the entry row if it belongs to user_id, else 404."""
+    rows = (
+        db.table("v2_thread_entries")
+        .select("v2_thread_entries.*, v2_threads!inner(user_id)")
+        .eq("v2_thread_entries.id", entry_id)
+        .eq("v2_threads.user_id", user_id)
+        .execute()
+        .data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return rows[0]
+
+
+def _assert_item_owner(db: Client, item_id: str, user_id: str) -> dict:
+    """Return the item row if it belongs to user_id (via entry → thread), else 404."""
+    rows = (
+        db.table("v2_entry_items")
+        .select(
+            "v2_entry_items.*, "
+            "v2_thread_entries!inner(v2_threads!inner(user_id))"
+        )
+        .eq("v2_entry_items.id", item_id)
+        .eq("v2_thread_entries.v2_threads.user_id", user_id)
+        .execute()
+        .data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return rows[0]
+
+
+# ── Row mappers ───────────────────────────────────────────────────────────────
+
+def _parse_ts(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
 
 def _enrich_thread(thread_row: dict, entries: list[dict]) -> ThreadOut:
     """Attach active_entry_id and last_entry_at computed from entries."""
     thread_entries = [e for e in entries if e["thread_id"] == thread_row["id"]]
     active = next((e for e in thread_entries if e["status"] == "active"), None)
-    last = max(thread_entries, key=lambda e: e["created_at"], default=None)
+    last = max(thread_entries, key=lambda e: _parse_ts(e["created_at"]), default=None)
     return ThreadOut(
         id=thread_row["id"],
         template=thread_row["template"],
@@ -228,14 +268,11 @@ def get_thread(thread_id: str):
 
 @app.get("/entries/{entry_id}")
 def get_entry(entry_id: str):
-    # TODO: auth — join through thread to validate ownership
+    # TODO: auth
+    user_id = get_dev_user_id()
     db = get_supabase()
 
-    entry_rows = (
-        db.table("v2_thread_entries").select("*").eq("id", entry_id).execute().data
-    )
-    if not entry_rows:
-        raise HTTPException(status_code=404, detail="Entry not found")
+    entry_row = _assert_entry_owner(db, entry_id, user_id)
 
     items = (
         db.table("v2_entry_items")
@@ -255,7 +292,7 @@ def get_entry(entry_id: str):
     )
 
     return {
-        "entry": _row_to_entry(entry_rows[0]),
+        "entry": _row_to_entry(entry_row),
         "items": [_row_to_item(i) for i in items],
         "messages": [_row_to_message(m) for m in messages],
     }
@@ -304,18 +341,21 @@ def create_entry(thread_id: str, body: CreateEntryBody):
         .execute()
         .data[0]
     )
+    entry_id = row["id"]
 
-    # Seed items if provided
     if body.items:
-        db.table("v2_entry_items").insert(
-            [{**item, "entry_id": row["id"]} for item in body.items]
+        result = db.table("v2_entry_items").insert(
+            [{**item, "entry_id": entry_id} for item in body.items]
         ).execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to seed entry items")
 
-    # Seed messages if provided
     if body.messages:
-        db.table("v2_entry_messages").insert(
-            [{**msg, "entry_id": row["id"]} for msg in body.messages]
+        result = db.table("v2_entry_messages").insert(
+            [{**msg, "entry_id": entry_id} for msg in body.messages]
         ).execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to seed entry messages")
 
     return _row_to_entry(row)
 
@@ -323,13 +363,16 @@ def create_entry(thread_id: str, body: CreateEntryBody):
 @app.patch("/entries/{entry_id}/close", response_model=EntryOut)
 def close_entry(entry_id: str):
     # TODO: auth
+    user_id = get_dev_user_id()
     db = get_supabase()
 
-    import datetime
+    # Verify ownership before mutating
+    _assert_entry_owner(db, entry_id, user_id)
 
+    closed_at = datetime.now(timezone.utc).isoformat()
     rows = (
         db.table("v2_thread_entries")
-        .update({"status": "closed", "closed_at": datetime.datetime.utcnow().isoformat() + "Z"})
+        .update({"status": "closed", "closed_at": closed_at})
         .eq("id", entry_id)
         .eq("status", "active")
         .execute()
@@ -345,7 +388,11 @@ def close_entry(entry_id: str):
 @app.patch("/entry_items/{item_id}", response_model=EntryItemOut)
 def patch_item(item_id: str, body: PatchItemBody):
     # TODO: auth
+    user_id = get_dev_user_id()
     db = get_supabase()
+
+    # Verify ownership (items → entries → threads)
+    _assert_item_owner(db, item_id, user_id)
 
     patch = body.model_dump(exclude_none=True)
     if not patch:
@@ -364,10 +411,14 @@ def patch_item(item_id: str, body: PatchItemBody):
 @app.post("/entries/{entry_id}/messages", response_model=EntryMessageOut, status_code=201)
 def create_message(entry_id: str, body: CreateMessageBody):
     # TODO: auth
+    user_id = get_dev_user_id()
     db = get_supabase()
 
     if body.role not in ("ai", "user"):
         raise HTTPException(status_code=422, detail="role must be 'ai' or 'user'")
+
+    # Verify ownership before inserting
+    _assert_entry_owner(db, entry_id, user_id)
 
     row = (
         db.table("v2_entry_messages")

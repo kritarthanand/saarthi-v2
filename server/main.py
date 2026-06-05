@@ -119,21 +119,20 @@ def _assert_entry_owner(db: Client, entry_id: str, user_id: str) -> dict:
 
 
 def _assert_item_owner(db: Client, item_id: str, user_id: str) -> dict:
-    """Return the item row if it belongs to user_id (via entry → thread), else 404."""
-    rows = (
-        db.table("v2_entry_items")
-        .select(
-            "v2_entry_items.*, "
-            "v2_thread_entries!inner(v2_threads!inner(user_id))"
-        )
-        .eq("v2_entry_items.id", item_id)
-        .eq("v2_thread_entries.v2_threads.user_id", user_id)
-        .execute()
-        .data
+    """Return the item row if it belongs to user_id (via entry → thread), else 404.
+
+    Uses two explicit queries rather than a double-nested PostgREST embed filter
+    to avoid relying on a supabase-py/PostgREST version-dependent code path that
+    could silently ignore the nested predicate.
+    """
+    item_rows = (
+        db.table("v2_entry_items").select("*").eq("id", item_id).execute().data
     )
-    if not rows:
+    if not item_rows:
         raise HTTPException(status_code=404, detail="Item not found")
-    return rows[0]
+    # Reuse _assert_entry_owner to verify the entry's thread belongs to user_id.
+    _assert_entry_owner(db, item_rows[0]["entry_id"], user_id)
+    return item_rows[0]
 
 
 # ── Row mappers ───────────────────────────────────────────────────────────────
@@ -343,6 +342,9 @@ def create_entry(thread_id: str, body: CreateEntryBody):
     )
     entry_id = row["id"]
 
+    # Note: if either insert below fails the entry row is already committed, leaving
+    # an active entry with no items/messages. The caller must close it before retrying.
+    # Acceptable tradeoff — multi-table transactions require a DB function or RPC.
     if body.items:
         result = db.table("v2_entry_items").insert(
             [{**item, "entry_id": entry_id} for item in body.items]

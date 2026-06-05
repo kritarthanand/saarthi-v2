@@ -1,6 +1,6 @@
 # Spec — Workstream B: Per-Template Summary UIs
 
-> **Read first:** [`docs/threads-design.md`](../../docs/threads-design.md) — the master design doc. This spec is one of three parallel workstreams (A/B/C) carved from it. Don't re-derive design decisions here; this spec assumes you've read it.
+> **Read first:** [`docs/threads-design.md`](../threads-design.md) — the master design doc. This spec is one of three parallel workstreams (A/B/C) carved from it. Don't re-derive design decisions here; this spec assumes you've read it.
 
 ## What this workstream owns
 
@@ -102,7 +102,7 @@ export const TEMPLATE_REGISTRY: Record<ThreadTemplate, TemplateConfig> = {
 };
 ```
 
-Modify [`src/components/thread/ThreadDetail.tsx`](../../src/components/thread/ThreadDetail.tsx): keep the existing header + Summary/Chat tab bar. Replace the current `kind`-based summary rendering with a dispatcher:
+Modify [`src/components/thread/ThreadDetail.tsx`](../../../src/components/thread/ThreadDetail.tsx): keep the existing header + Summary/Chat tab bar. Replace the current `kind`-based summary rendering with a dispatcher:
 
 ```tsx
 const { SummaryView } = TEMPLATE_REGISTRY[thread.template];
@@ -137,7 +137,7 @@ The current Summary UI for the morning thread is the reference — see the scree
 
 A triggered list of closed entries for the current thread. Trigger: a button in the header (gear menu is fine; or a small "history" affordance — pick what looks right with the existing shell).
 
-- Sheet content: closed entries grouped by date (Today / This week / Earlier this month / `YYYY MMM`). Use the date-grouping pattern that exists in `HISTORY_DAYS` at [`src/lib/mockData.ts:287`](../../src/lib/mockData.ts) as reference — you don't need to import from there, just steal the grouping logic
+- Sheet content: closed entries grouped by date (Today / This week / Earlier this month / `YYYY MMM`). Use the date-grouping pattern that exists in `HISTORY_DAYS` at [`src/lib/mockData.ts:287`](../../../src/lib/mockData.ts) as reference — you don't need to import from there, just steal the grouping logic
 - Each row: entry label + one-line completion summary ("6 of 8 done" — derive from item count)
 - Tap a closed entry → child route (Expo Router) rendering the same SummaryView with that entry's data, in a read-only mode (no `onToggle`, no composer)
 - Phone: push a new screen. iPad/web: can stay as a side sheet — your call
@@ -150,7 +150,7 @@ A triggered list of closed entries for the current thread. Trigger: a button in 
 4. `EveningRitualSummary`'s per-prompt composer accepts text and "answered" items render as done
 5. Weekly's Review/Plan sub-tabs partition items correctly
 6. Entry-history sheet lists at least the 2–3 closed morning-thread entries from the fixture; tapping one opens a frozen-data SummaryView
-7. The `kind` field is gone from [`src/components/thread/ThreadDetail.tsx`](../../src/components/thread/ThreadDetail.tsx) and anywhere else you touched. Lingering uses elsewhere have a TODO comment
+7. The `kind` field is gone from [`src/components/thread/ThreadDetail.tsx`](../../../src/components/thread/ThreadDetail.tsx) and anywhere else you touched. Lingering uses elsewhere have a TODO comment
 
 ## Integration
 
@@ -158,10 +158,10 @@ When Workstream A is ready, your SummaryView components stay unchanged. The pare
 
 ## Pointers
 
-- Master design: [`docs/threads-design.md`](../../docs/threads-design.md)
-- Existing thread shell to modify: [`src/components/thread/ThreadDetail.tsx`](../../src/components/thread/ThreadDetail.tsx)
+- Master design: [`docs/threads-design.md`](../threads-design.md)
+- Existing thread shell to modify: [`src/components/thread/ThreadDetail.tsx`](../../../src/components/thread/ThreadDetail.tsx)
 - Existing morning summary to port: search `src/components/thread/` for `MorningSummary` / `FocusSummary` / `NoteSummary`
-- Legacy mock data (still in use; don't touch unless you're sure): [`src/lib/mockData.ts`](../../src/lib/mockData.ts)
-- Date-grouping reference: [`src/lib/mockData.ts:287`](../../src/lib/mockData.ts)
-- V2 conventions: [`AGENT.md`](../../AGENT.md), [`CLAUDE.md`](../../CLAUDE.md)
+- Legacy mock data (still in use; don't touch unless you're sure): [`src/lib/mockData.ts`](../../../src/lib/mockData.ts)
+- Date-grouping reference: [`src/lib/mockData.ts:287`](../../../src/lib/mockData.ts)
+- V2 conventions: [`AGENT.md`](../../../AGENT.md), [`CLAUDE.md`](../../../CLAUDE.md)
 - Stack notes: Expo SDK 56+, Router, NativeWind v4, TS strict. When touching Expo/RN APIs, check https://docs.expo.dev/versions/v56.0.0/

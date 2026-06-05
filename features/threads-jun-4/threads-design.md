@@ -4,7 +4,7 @@
 
 ## Context
 
-Saarthi V2 ships a **threads UI** (iMessage-style persistent conversation spaces) as its core surface. Today the UI is wired to mock data in [`src/lib/mockData.ts`](../src/lib/mockData.ts) — no Supabase reads, no API. The migration [`supabase/migrations/20260531_v2_threads.sql`](../supabase/migrations/20260531_v2_threads.sql) exists but has not been applied.
+Saarthi V2 ships a **threads UI** (iMessage-style persistent conversation spaces) as its core surface. Today the UI is wired to mock data in [`src/lib/mockData.ts`](../../src/lib/mockData.ts) — no Supabase reads, no API. The migration [`supabase/migrations/20260531_v2_threads.sql`](../../supabase/migrations/20260531_v2_threads.sql) exists but has not been applied.
 
 This spec defines what threads actually are, the data model, and the per-template UI pattern. Building this replaces the mock data layer.
 
@@ -14,7 +14,7 @@ A **thread is a long, recurring conversation**. It's not a single instance — i
 
 - A thread has many **entries**. Each entry is one conversation (its own items, its own AI dialogue, its own messages).
 - A thread is one of three **templates**: `morning_ritual`, `evening_ritual`, `weekly_ritual`. Each user has exactly one thread per template.
-- A thread is **owned by one Pandava** (coach) — `nakula | bheem | arjun | yudi | sahdev`. The Pandava system already exists in code: see [`src/constants/pandavas.ts`](../src/constants/pandavas.ts). The Coach detail pane ([`src/components/coaches/CoachDetail.tsx`](../src/components/coaches/CoachDetail.tsx)) is where the user reaches their threads — each coach's pane lists the threads that belong to them.
+- A thread is **owned by one Pandava** (coach) — `nakula | bheem | arjun | yudi | sahdev`. The Pandava system already exists in code: see [`src/constants/pandavas.ts`](../../src/constants/pandavas.ts). The Coach detail pane ([`src/components/coaches/CoachDetail.tsx`](../../src/components/coaches/CoachDetail.tsx)) is where the user reaches their threads — each coach's pane lists the threads that belong to them.
 - At any time, a thread has **at most one active entry**. Starting a new entry requires closing the current one (`status: active → closed`).
 - Closing an entry freezes its items and messages as history. The thread itself never closes.
 - When/whether a new entry is opened is **not the schema's concern**. That's handled by an external workflow, a cron, a Supabase function, or a manual UI action. The DB just enforces "one active at a time per thread."
@@ -39,7 +39,7 @@ User
 
 ## Data model
 
-Extend the existing migration ([`supabase/migrations/20260531_v2_threads.sql`](../supabase/migrations/20260531_v2_threads.sql)). All tables prefixed `v2_` per [the V2 namespacing rule](../agent-memory/decisions.md).
+Extend the existing migration ([`supabase/migrations/20260531_v2_threads.sql`](../../supabase/migrations/20260531_v2_threads.sql)). All tables prefixed `v2_` per [the V2 namespacing rule](../../agent-memory/decisions.md).
 
 ```sql
 create type v2_thread_template as enum (
@@ -117,7 +117,7 @@ RLS: standard `user_id = auth.uid()` on `v2_threads`; entries/items/messages joi
 
 ## UI shell (already built — wire into it, don't replace it)
 
-The current `ThreadDetail` shell at [`src/components/thread/ThreadDetail.tsx`](../src/components/thread/ThreadDetail.tsx) already defines the layout that every template will use:
+The current `ThreadDetail` shell at [`src/components/thread/ThreadDetail.tsx`](../../src/components/thread/ThreadDetail.tsx) already defines the layout that every template will use:
 
 ```
 ┌──────────────────────────────────────┐
@@ -229,7 +229,7 @@ Implementation hint: paginate by entry, not by message. Load the active entry's 
 
 ## Navigation pattern
 
-The existing master/detail shell at [`src/app/index.tsx`](../src/app/index.tsx) already gives us most of it. Mapping the recurring-entry model onto it:
+The existing master/detail shell at [`src/app/index.tsx`](../../src/app/index.tsx) already gives us most of it. Mapping the recurring-entry model onto it:
 
 1. **Thread list** — rows for the three threads. Preview shows the **active entry**.
    - Morning: "Wed · 6 of 8 done"
@@ -244,7 +244,7 @@ The existing master/detail shell at [`src/app/index.tsx`](../src/app/index.tsx) 
    - **(a)** A history sheet/drawer triggered from the header gear or a dedicated affordance, listing closed entries. Tap one → opens that entry in a child route, with the same SummaryView frozen to that entry's data.
    - **(b)** Closed-entry list rendered inline below the active entry on the Summary tab (matches the original sketch in this doc).
 
-   Default recommendation: **(a)**. Keeps the Summary tab focused on "now," reuses the chat-tab scrollback for retrospective reading, and avoids a wall of 300+ rows on Morning/Evening. The grouping pattern for the history sheet (Today / Yesterday / This week / Earlier this month / March 2026) already exists in `HISTORY_DAYS` at [`src/lib/mockData.ts:287`](../src/lib/mockData.ts).
+   Default recommendation: **(a)**. Keeps the Summary tab focused on "now," reuses the chat-tab scrollback for retrospective reading, and avoids a wall of 300+ rows on Morning/Evening. The grouping pattern for the history sheet (Today / Yesterday / This week / Earlier this month / March 2026) already exists in `HISTORY_DAYS` at [`src/lib/mockData.ts:287`](../../src/lib/mockData.ts).
 
 The current `ChatHistoryView` becomes redundant for ritual threads (history lives inside each thread). It stays useful later as a cross-thread feed/search.
 
@@ -260,7 +260,7 @@ Every thread belongs to one Pandava via `v2_threads.coach_id`. The mapping isn't
 
 (Confirm with the user — Yudi or Bheem might own Morning depending on framing. The schema lets you change this per-user without code changes.)
 
-**Coach detail pane integration** — [`src/components/coaches/CoachDetail.tsx`](../src/components/coaches/CoachDetail.tsx) is the home for a coach's threads. New section in that pane:
+**Coach detail pane integration** — [`src/components/coaches/CoachDetail.tsx`](../../src/components/coaches/CoachDetail.tsx) is the home for a coach's threads. New section in that pane:
 
 ```
 ┌─ Sahdev · building Saarthi ──────┐
@@ -277,7 +277,7 @@ Tapping a thread row opens `ThreadDetail` for it — same component used from th
 
 ## API surface (FastAPI)
 
-Server lives at [`server/main.py`](../server/main.py) — currently only `/health`. Add:
+Server lives at [`server/main.py`](../../server/main.py) — currently only `/health`. Add:
 
 ```
 GET    /threads                              → user's three threads with active-entry preview
@@ -316,7 +316,7 @@ Also commit a fixture at `src/lib/threads.fixture.ts` that satisfies these types
 
 Owns the entire backend and the React data hook.
 
-1. Extend [`supabase/migrations/20260531_v2_threads.sql`](../supabase/migrations/20260531_v2_threads.sql) with the schema in the Data Model section. Apply.
+1. Extend [`supabase/migrations/20260531_v2_threads.sql`](../../supabase/migrations/20260531_v2_threads.sql) with the schema in the Data Model section. Apply.
 2. FastAPI Pydantic models matching `src/lib/threads.ts` exactly (camelCase ↔ snake_case translation layer if needed). Implement endpoints in the API Surface section. Skip auth wiring if not in place; tag with TODO.
 3. `useThreads()`, `useThread(threadId)`, `useEntry(entryId)` hooks in `src/lib/threads.hooks.ts` that hit the endpoints. They return the shared types from Step 0.
 4. Seed script at `scripts/seed-threads.ts` mirroring `threads.fixture.ts` against the real Supabase project.
@@ -327,7 +327,7 @@ Owns the entire backend and the React data hook.
 
 Owns everything visible inside the Summary tab plus the past-entries browser.
 
-1. Build `TEMPLATE_REGISTRY` in `src/lib/threadTemplates.ts` (signature in the registry section above). Wire the Summary dispatcher into [`src/components/thread/ThreadDetail.tsx`](../src/components/thread/ThreadDetail.tsx) so the header + tab bar stay put and only the Summary body switches by template. Fold the legacy `kind` field into `template`.
+1. Build `TEMPLATE_REGISTRY` in `src/lib/threadTemplates.ts` (signature in the registry section above). Wire the Summary dispatcher into [`src/components/thread/ThreadDetail.tsx`](../../src/components/thread/ThreadDetail.tsx) so the header + tab bar stay put and only the Summary body switches by template. Fold the legacy `kind` field into `template`.
 2. **MorningRitualSummary** — port from the existing `MorningSummary` component. Points card, checklist rows, inline AI suggestion row with chips.
 3. **EveningRitualSummary** — reflection prompts as items with per-prompt composer (writes `EntryMessage` rows with `item_ref` set; item flips `done`).
 4. **WeeklyRitualSummary** — Review/Plan sub-tabs inside Summary, partition items by `section`, render `entry.meta` aggregates as the Review header strip.
@@ -340,7 +340,7 @@ Owns everything visible inside the Summary tab plus the past-entries browser.
 Owns the cross-cutting UI: the chat tab (used by every template) and the Threads block inside the Coach detail pane.
 
 1. **Shared Chat tab** — single `ThreadChat` component rendering messages from **all entries** in the thread in one scroll, with `[TEMPLATE] SESSION` pill dividers between entries (driven by `EntryMessage.entry_id` group boundaries). Pill label from `Entry.label` with `[TEMPLATE] SESSION` fallback. Paginate by entry: newest entry first, lazy-load older entries on upward scroll.
-2. **Coach-pane Threads section** — add a `Threads` block to [`src/components/coaches/CoachDetail.tsx`](../src/components/coaches/CoachDetail.tsx). Lists the threads where `Thread.coach_id` matches the current coach; row renders tag + active-entry preview; tap routes into `ThreadDetail`.
+2. **Coach-pane Threads section** — add a `Threads` block to [`src/components/coaches/CoachDetail.tsx`](../../src/components/coaches/CoachDetail.tsx). Lists the threads where `Thread.coach_id` matches the current coach; row renders tag + active-entry preview; tap routes into `ThreadDetail`.
 
 **Imports `threads.fixture.ts` throughout. No backend dependency.**
 
@@ -362,16 +362,16 @@ After Step 0, the three are independent in source files touched, knowledge requi
 
 ## Open questions to surface before implementing
 
-- **Auth**: is there a logged-in user model wired up yet, or does seeding need a fixed dev `user_id`? Check [`src/lib/supabase.ts`](../src/lib/supabase.ts) and `server/`.
+- **Auth**: is there a logged-in user model wired up yet, or does seeding need a fixed dev `user_id`? Check [`src/lib/supabase.ts`](../../src/lib/supabase.ts) and `server/`.
 - **Entry creation trigger**: confirm with the user where the "open new entry" call comes from for each template (manual UI button vs. external workflow). The schema doesn't care, but the seed/dev-loop story does.
 - **Weekly review aggregation**: when a weekly entry is created, what data goes into `meta`? Probably last-7-days completion %, points, streak — confirm before building the Review tab.
 - **Coach assignment**: confirm the default coach for each template (current doc assumes all three → `sahdev`; user may want morning → Yudi/Bheem for example).
 
 ## Pointers
 
-- Repo entrypoint: [`AGENT.md`](../AGENT.md), [`CLAUDE.md`](../CLAUDE.md)
-- Current UI state of threads: [`src/app/index.tsx`](../src/app/index.tsx), [`src/components/thread/ThreadDetail.tsx`](../src/components/thread/ThreadDetail.tsx)
-- Pandava system: [`src/constants/pandavas.ts`](../src/constants/pandavas.ts), [`src/components/coaches/CoachesPane.tsx`](../src/components/coaches/CoachesPane.tsx), [`src/components/coaches/CoachDetail.tsx`](../src/components/coaches/CoachDetail.tsx)
-- Mock data being replaced: [`src/lib/mockData.ts`](../src/lib/mockData.ts)
-- Existing (unapplied) migration: [`supabase/migrations/20260531_v2_threads.sql`](../supabase/migrations/20260531_v2_threads.sql)
+- Repo entrypoint: [`AGENT.md`](../../AGENT.md), [`CLAUDE.md`](../../CLAUDE.md)
+- Current UI state of threads: [`src/app/index.tsx`](../../src/app/index.tsx), [`src/components/thread/ThreadDetail.tsx`](../../src/components/thread/ThreadDetail.tsx)
+- Pandava system: [`src/constants/pandavas.ts`](../../src/constants/pandavas.ts), [`src/components/coaches/CoachesPane.tsx`](../../src/components/coaches/CoachesPane.tsx), [`src/components/coaches/CoachDetail.tsx`](../../src/components/coaches/CoachDetail.tsx)
+- Mock data being replaced: [`src/lib/mockData.ts`](../../src/lib/mockData.ts)
+- Existing (unapplied) migration: [`supabase/migrations/20260531_v2_threads.sql`](../../supabase/migrations/20260531_v2_threads.sql)
 - Supabase project (shared with V1): `pedalbyxrzkltfbzbewc` — use the `supabase-query` skill to run SQL

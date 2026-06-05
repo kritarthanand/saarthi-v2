@@ -1,6 +1,6 @@
 # Spec — Workstream A: Threads Data Layer
 
-> **Read first:** [`docs/threads-design.md`](../../docs/threads-design.md) — the master design doc. This spec is one of three parallel workstreams (A/B/C) carved from it. Don't re-derive design decisions here; this spec assumes you've read it.
+> **Read first:** [`docs/threads-design.md`](../threads-design.md) — the master design doc. This spec is one of three parallel workstreams (A/B/C) carved from it. Don't re-derive design decisions here; this spec assumes you've read it.
 
 ## What this workstream owns
 
@@ -82,7 +82,7 @@ export type EntryMessage = {
 
 ### 1. Migration
 
-Extend [`supabase/migrations/20260531_v2_threads.sql`](../../supabase/migrations/20260531_v2_threads.sql) with the schema in the Data Model section of the design doc. Verbatim:
+Extend [`supabase/migrations/20260531_v2_threads.sql`](../../../supabase/migrations/20260531_v2_threads.sql) with the schema in the Data Model section of the design doc. Verbatim:
 
 ```sql
 create type v2_thread_template as enum ('morning_ritual', 'evening_ritual', 'weekly_ritual');
@@ -143,7 +143,7 @@ Apply with the `supabase-query` skill (Supabase project `pedalbyxrzkltfbzbewc`, 
 
 ### 2. FastAPI endpoints
 
-Add to [`server/main.py`](../../server/main.py) (currently only `/health`). Pydantic models should mirror `src/lib/threads.ts` exactly — snake_case on the wire, no camelCase translation.
+Add to [`server/main.py`](../../../server/main.py) (currently only `/health`). Pydantic models should mirror `src/lib/threads.ts` exactly — snake_case on the wire, no camelCase translation.
 
 ```
 GET    /threads                              → Thread[]
@@ -176,7 +176,7 @@ export function useOpenEntry(): (threadId: string, seed?: { items?: ...; message
 export function useCloseEntry(): (entryId: string) => Promise<Entry>;
 ```
 
-Use the existing Supabase client at [`src/lib/supabase.ts`](../../src/lib/supabase.ts) or fetch the FastAPI endpoints — your call. Whichever, the **return types must match the contract in `src/lib/threads.ts`** so B and C can swap fixture for hooks with no other changes.
+Use the existing Supabase client at [`src/lib/supabase.ts`](../../../src/lib/supabase.ts) or fetch the FastAPI endpoints — your call. Whichever, the **return types must match the contract in `src/lib/threads.ts`** so B and C can swap fixture for hooks with no other changes.
 
 ### 4. Seed script
 
@@ -192,13 +192,13 @@ Create `scripts/seed-threads.ts` that, for the dev user, inserts a real-database
 
 ## Pointers
 
-- Master design: [`docs/threads-design.md`](../../docs/threads-design.md)
-- Existing migration to extend: [`supabase/migrations/20260531_v2_threads.sql`](../../supabase/migrations/20260531_v2_threads.sql)
-- FastAPI entrypoint: [`server/main.py`](../../server/main.py)
-- Supabase client: [`src/lib/supabase.ts`](../../src/lib/supabase.ts)
-- Pandava (CoachId) source: [`src/constants/pandavas.ts`](../../src/constants/pandavas.ts)
+- Master design: [`docs/threads-design.md`](../threads-design.md)
+- Existing migration to extend: [`supabase/migrations/20260531_v2_threads.sql`](../../../supabase/migrations/20260531_v2_threads.sql)
+- FastAPI entrypoint: [`server/main.py`](../../../server/main.py)
+- Supabase client: [`src/lib/supabase.ts`](../../../src/lib/supabase.ts)
+- Pandava (CoachId) source: [`src/constants/pandavas.ts`](../../../src/constants/pandavas.ts)
 - Supabase project ID (shared with V1): `pedalbyxrzkltfbzbewc` — use the `supabase-query` skill
-- V2 conventions: [`AGENT.md`](../../AGENT.md), [`CLAUDE.md`](../../CLAUDE.md), [`agent-memory/`](../../agent-memory/)
+- V2 conventions: [`AGENT.md`](../../../AGENT.md), [`CLAUDE.md`](../../../CLAUDE.md), [`agent-memory/`](../../../agent-memory/)
 
 ## Open questions to flag (don't block on them)
 

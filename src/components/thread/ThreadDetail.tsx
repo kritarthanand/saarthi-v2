@@ -65,7 +65,7 @@ export function ThreadDetail({
   embedded = false,
 }: {
   thread: Thread;
-  onToggleItem: (itemId: string) => void;
+  onToggleItem: (itemId: string, done: boolean) => Promise<void> | void;
   onSendMessage: (text: string) => void;
   onItemMessage: (itemLabel: string, text: string) => void;
   onClose: () => void;
@@ -129,14 +129,17 @@ export function ThreadDetail({
     setSentCount(0);
   }, [thread.id]);
 
-  const handleRitualToggle = (itemId: string, done: boolean) => {
-    // Optimistic local mutation, then fire the parent's API call. Parent
-    // refetches the global thread list; our own useEntry refetches on next
-    // refetchActiveEntry().
+  const handleRitualToggle = async (itemId: string, done: boolean) => {
+    // Optimistic local mutation, then fire the parent's API call. Wait for the
+    // PATCH to land before refetching — otherwise the refetch can race the
+    // PATCH and return stale (pre-toggle) data, which would flip our optimistic
+    // checkbox back to unchecked.
     setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done } : i)));
-    onToggleItem(itemId);
-    // Re-pull active entry shortly after to reconcile with the server's truth.
-    setTimeout(() => refetchActiveEntry(), 250);
+    try {
+      await onToggleItem(itemId, done);
+    } finally {
+      refetchActiveEntry();
+    }
   };
 
   const handleRitualSend = (text: string, itemId?: string) => {
@@ -242,6 +245,24 @@ export function ThreadDetail({
     onSendMessage(text);
     setTimeout(() => refetchActiveEntry(), 250);
   }, [activeEntry, onSendMessage, refetchActiveEntry]);
+
+  const handleEndRitual = useCallback(() => {
+    const top3Item = localItems.find((i) => i.label === 'Top 3 Goals for the day');
+    const timeblockItem = localItems.find((i) => i.label === 'Time Block for the day');
+    const top3Text = top3Item
+      ? localMessages.find((m) => m.item_ref === top3Item.id && m.role === 'user')?.text
+      : undefined;
+    const timeblockText = timeblockItem
+      ? localMessages.find((m) => m.item_ref === timeblockItem.id && m.role === 'user')?.text
+      : undefined;
+
+    const parts: string[] = ['Morning ritual complete.'];
+    if (top3Text) parts.push(`My top 3 for today:\n${top3Text}`);
+    if (timeblockText) parts.push(`Time block:\n${timeblockText}`);
+
+    onSendMessage(parts.join('\n\n'));
+    setTab('chat');
+  }, [localItems, localMessages, onSendMessage, setTab]);
 
   const handleLoadOlderEntry = useCallback(() => {
     const notLoaded = liveEntries
@@ -400,9 +421,18 @@ export function ThreadDetail({
                   handleRitualToggle,
                   handleRitualSend,
                   handleSuggestionChoice,
-                  onToggleItem,
+                  // Legacy summaries (non-ritual threads) call with just the id —
+                  // bridge to the new (id, done) shape by looking up current state.
+                  (id: string) => {
+                    const current = thread.items.find((i) => i.id === id);
+                    if (current) onToggleItem(id, !current.done);
+                  },
                   () => setTab('chat'),
                   onItemMessage,
+                  template === 'morning_ritual' ? handleEndRitual : undefined,
+                  template === 'evening_ritual'
+                    ? (activeEntry?.meta?.morning_top3 as string | undefined)
+                    : undefined,
                 )
               : <ThreadChatTab thread={thread} />}
           </ScrollView>
@@ -574,6 +604,8 @@ function renderSummary(
   toggleItem: (id: string) => void,
   openChat: () => void,
   itemMessage: (itemLabel: string, text: string) => void,
+  onEndRitual?: () => void,
+  morningTop3?: string,
 ) {
   // Ritual thread — dispatch via TEMPLATE_REGISTRY
   if (template != null && activeEntry != null) {
@@ -586,6 +618,8 @@ function renderSummary(
         onToggle={onRitualToggle}
         onSendMessage={onRitualSend}
         onSuggestionChoice={onSuggestionChoice}
+        onEndRitual={onEndRitual}
+        morningTop3={morningTop3}
       />
     );
   }

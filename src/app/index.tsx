@@ -104,19 +104,19 @@ export default function AppRoot() {
   }, [liveThreads, mode]);
 
   // ── Mutations: fire API, then refetch authoritative state ──────────────────
+  // Caller passes the desired `done` value explicitly — reading it from the
+  // global `threads` array is racy when the user taps faster than the refetch
+  // round-trip.
   const toggleItem = useCallback(
-    async (threadId: string, itemId: string) => {
-      const thread = threads.find((t) => t.id === threadId);
-      const item = thread?.items.find((i) => i.id === itemId);
-      if (!item) return;
+    async (itemId: string, done: boolean) => {
       try {
-        await toggleItemAsync(itemId, !item.done);
+        await toggleItemAsync(itemId, done);
         refetchAll();
       } catch (e) {
         console.error('toggleItem failed', e);
       }
     },
-    [threads, toggleItemAsync, refetchAll],
+    [toggleItemAsync, refetchAll],
   );
 
   const handleSendMessage = useCallback(
@@ -212,7 +212,7 @@ export default function AppRoot() {
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Colors.bg }}>
             <ThreadDetail
               thread={openThread}
-              onToggleItem={(itemId) => toggleItem(openThread.id, itemId)}
+              onToggleItem={(itemId, done) => toggleItem(itemId, done)}
               onSendMessage={(text) => handleSendMessage(openThread.id, text)}
               onItemMessage={(itemLabel, text) => handleItemMessage(openThread.id, itemLabel, text)}
               onClose={() => setOpenThreadId(null)}
@@ -297,7 +297,7 @@ export default function AppRoot() {
           <ThreadDetail
             key={openThread.id}
             thread={openThread}
-            onToggleItem={(itemId) => toggleItem(openThread.id, itemId)}
+            onToggleItem={(itemId, done) => toggleItem(itemId, done)}
             onSendMessage={(text) => handleSendMessage(openThread.id, text)}
             onItemMessage={(itemLabel, text) => handleItemMessage(openThread.id, itemLabel, text)}
             embedded

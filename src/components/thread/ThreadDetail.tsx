@@ -87,7 +87,7 @@ export function ThreadDetail({
 
   // Live data for ritual threads — entries from the thread record, items+messages
   // from the active entry. For non-ritual (legacy) threads we don't fetch.
-  const { thread: liveThread, entries: liveEntries } = useThread(template != null ? thread.id : '');
+  const { thread: liveThread, entries: liveEntries, refetch: refetchThread } = useThread(template != null ? thread.id : '');
   const activeEntry = useMemo(
     () => liveEntries.find((e) => e.status === 'active') ?? null,
     [liveEntries],
@@ -252,7 +252,7 @@ export function ThreadDetail({
     if (ritualEndedAt) {
       // Undo: clear the flag, stay on the summary tab.
       await patchEntryMeta(activeEntry.id, { ritual_ended_at: null });
-      refetchActiveEntry();
+      refetchThread();
       return;
     }
 
@@ -273,8 +273,8 @@ export function ThreadDetail({
     await patchEntryMeta(activeEntry.id, { ritual_ended_at: new Date().toISOString() });
     onSendMessage(parts.join('\n\n'));
     setTab('chat');
-    refetchActiveEntry();
-  }, [activeEntry, ritualEndedAt, localItems, localMessages, onSendMessage, setTab, patchEntryMeta, refetchActiveEntry]);
+    refetchThread();
+  }, [activeEntry, ritualEndedAt, localItems, localMessages, onSendMessage, setTab, patchEntryMeta, refetchThread]);
 
   const handleLoadOlderEntry = useCallback(() => {
     const notLoaded = liveEntries

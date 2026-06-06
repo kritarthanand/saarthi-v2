@@ -1,8 +1,8 @@
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
@@ -12,13 +12,12 @@ from supabase import create_client, Client
 
 load_dotenv()
 
-LA_TZ = ZoneInfo("America/Los_Angeles")
-_scheduler = BackgroundScheduler(timezone="America/Los_Angeles")
+_scheduler = BackgroundScheduler(timezone="UTC")
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    _scheduler.add_job(_daily_reset_job, "cron", hour=4, minute=0, id="daily_reset")
+    _scheduler.add_job(_daily_reset_job, "cron", minute=0, id="daily_reset")
     _scheduler.start()
     yield
     _scheduler.shutdown(wait=False)
@@ -156,24 +155,68 @@ def _parse_ts(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
-def _is_today_la(created_at_str: str) -> bool:
-    """Return True if the timestamp falls on today's date in LA time."""
+def _safe_tz(tz_str: str) -> ZoneInfo:
     try:
-        dt = _parse_ts(created_at_str).astimezone(LA_TZ)
-        return dt.date() == datetime.now(LA_TZ).date()
+        return ZoneInfo(tz_str)
+    except (ZoneInfoNotFoundError, Exception):
+        return ZoneInfo("America/Los_Angeles")
+
+
+def _ritual_date(dt: datetime, tz: ZoneInfo, day_start_hour: int) -> date:
+    """Return the ritual 'day' a moment belongs to.
+
+    If the local time is before day_start_hour (e.g. 3am when day starts at 4am)
+    the moment belongs to the previous ritual day.
+    """
+    local = dt.astimezone(tz)
+    if local.hour < day_start_hour:
+        return (local - timedelta(days=1)).date()
+    return local.date()
+
+
+def _is_today(created_at_str: str, tz: ZoneInfo, day_start_hour: int) -> bool:
+    try:
+        now = datetime.now(timezone.utc)
+        return (
+            _ritual_date(_parse_ts(created_at_str), tz, day_start_hour)
+            == _ritual_date(now, tz, day_start_hour)
+        )
     except Exception:
         return False
 
 
-def _enrich_thread(thread_row: dict, entries: list[dict]) -> ThreadOut:
+def _get_user_schedule(db: Client, user_id: str) -> tuple[ZoneInfo, int]:
+    """Return (timezone, day_start_hour) from v2_profiles, falling back to defaults."""
+    try:
+        row = (
+            db.table("v2_profiles")
+            .select("timezone, day_start_hour")
+            .eq("id", user_id)
+            .maybeSingle()
+            .execute()
+            .data
+        )
+        if row:
+            return _safe_tz(row.get("timezone") or "America/Los_Angeles"), int(row.get("day_start_hour") or 0)
+    except Exception:
+        pass
+    return ZoneInfo("America/Los_Angeles"), 0
+
+
+def _enrich_thread(
+    thread_row: dict,
+    entries: list[dict],
+    tz: ZoneInfo,
+    day_start_hour: int,
+) -> ThreadOut:
     """Attach active_entry_id and last_entry_at computed from entries.
 
-    active_entry_id is only set when the entry was created today (LA time) —
-    so the Today view never surfaces a stale entry from a previous day.
+    active_entry_id is only set when the entry was created today (per the user's
+    schedule) — so the Today view never surfaces a stale entry from a previous day.
     """
     thread_entries = [e for e in entries if e["thread_id"] == thread_row["id"]]
     active = next(
-        (e for e in thread_entries if e["status"] == "active" and _is_today_la(e["created_at"])),
+        (e for e in thread_entries if e["status"] == "active" and _is_today(e["created_at"], tz, day_start_hour)),
         None,
     )
     last = max(thread_entries, key=lambda e: _parse_ts(e["created_at"]), default=None)
@@ -232,14 +275,14 @@ def _row_to_message(row: dict) -> EntryMessageOut:
 DAILY_RESET_TEMPLATES = ("morning_ritual", "evening_ritual")
 
 
-def _ensure_today_entry(db: Client, thread_id: str, template: str) -> str | None:
+def _ensure_today_entry(
+    db: Client, thread_id: str, template: str, tz: ZoneInfo, day_start_hour: int
+) -> str | None:
     """Create today's entry for a ritual thread if one doesn't exist yet.
 
     Returns the entry id (new or existing). Previous days' entries are left
     untouched — they stay active so history is preserved.
     """
-    today_la = datetime.now(LA_TZ).date()
-
     all_entries = (
         db.table("v2_thread_entries")
         .select("id, created_at, status")
@@ -249,7 +292,7 @@ def _ensure_today_entry(db: Client, thread_id: str, template: str) -> str | None
     )
 
     for e in all_entries:
-        if _is_today_la(e["created_at"]):
+        if _is_today(e["created_at"], tz, day_start_hour):
             return e["id"]
 
     # No entry for today — create one.
@@ -281,23 +324,23 @@ def _ensure_today_entry(db: Client, thread_id: str, template: str) -> str | None
 def _daily_reset_job() -> dict:
     """Ensure today's entries exist for all morning/evening ritual threads.
 
-    Runs at 4:00 AM America/Los_Angeles. Previous entries are left as-is.
-    Safe to call manually via POST /cron/daily-reset.
+    Runs hourly so it catches every user's day_start_hour regardless of timezone.
+    Previous entries are left as-is. Safe to call manually via POST /cron/daily-reset.
     """
     db = get_supabase()
 
     threads = (
         db.table("v2_threads")
-        .select("id, template")
+        .select("id, user_id, template")
         .in_("template", list(DAILY_RESET_TEMPLATES))
         .execute()
         .data
     )
 
     created, skipped = 0, 0
-    today_la = datetime.now(LA_TZ).date()
 
     for t in threads:
+        tz, day_start_hour = _get_user_schedule(db, t["user_id"])
         all_entries = (
             db.table("v2_thread_entries")
             .select("id, created_at")
@@ -305,11 +348,11 @@ def _daily_reset_job() -> dict:
             .execute()
             .data
         )
-        if any(_is_today_la(e["created_at"]) for e in all_entries):
+        if any(_is_today(e["created_at"], tz, day_start_hour) for e in all_entries):
             skipped += 1
             continue
 
-        _ensure_today_entry(db, t["id"], t["template"])
+        _ensure_today_entry(db, t["id"], t["template"], tz, day_start_hour)
         created += 1
 
     return {"created": created, "skipped": skipped}
@@ -353,16 +396,21 @@ def list_threads(coach_id: str | None = None):
         .data
     )
 
+    tz, day_start_hour = _get_user_schedule(db, user_id)
+
     # Lazy-create today's entry for any ritual thread that doesn't have one yet
-    # (handles the case where the 4am cron missed a run).
+    # (handles the case where the cron missed a run or the user changed their schedule).
     needs_today = {
         t["id"]: t["template"]
         for t in threads
         if t["template"] in DAILY_RESET_TEMPLATES
-        and not any(e["thread_id"] == t["id"] and _is_today_la(e["created_at"]) for e in entries)
+        and not any(
+            e["thread_id"] == t["id"] and _is_today(e["created_at"], tz, day_start_hour)
+            for e in entries
+        )
     }
     for thread_id, template in needs_today.items():
-        new_entry_id = _ensure_today_entry(db, thread_id, template)
+        new_entry_id = _ensure_today_entry(db, thread_id, template, tz, day_start_hour)
         if new_entry_id:
             entries.append({
                 "id": new_entry_id,
@@ -371,7 +419,7 @@ def list_threads(coach_id: str | None = None):
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
 
-    return [_enrich_thread(t, entries) for t in threads]
+    return [_enrich_thread(t, entries, tz, day_start_hour) for t in threads]
 
 
 @app.get("/threads/{thread_id}")
@@ -400,7 +448,8 @@ def get_thread(thread_id: str):
         .data
     )
 
-    thread_out = _enrich_thread(thread_rows[0], entries_raw)
+    tz, day_start_hour = _get_user_schedule(db, user_id)
+    thread_out = _enrich_thread(thread_rows[0], entries_raw, tz, day_start_hour)
     entries_out = [_row_to_entry(e) for e in entries_raw]
 
     return {"thread": thread_out, "entries": entries_out}

@@ -124,13 +124,17 @@ export default function AppRoot() {
   const handleSendMessage = useCallback(
     async (threadId: string, text: string) => {
       const entryId = activeEntryIdByThread[threadId];
-      if (!entryId) return;
+      if (!entryId) throw new Error('No active entry for this thread');
+      // Let errors propagate — handleEndRitual awaits this and skips the
+      // ritual_ended_at patch if the message fails. Inline log preserves the
+      // previous diagnostic while still re-throwing.
       try {
         await sendMessageAsync(entryId, text);
-        refetchAll();
       } catch (e) {
         console.error('sendMessage failed', e);
+        throw e;
       }
+      refetchAll();
     },
     [activeEntryIdByThread, sendMessageAsync, refetchAll],
   );

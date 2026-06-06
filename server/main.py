@@ -420,7 +420,6 @@ def _daily_reset_job(target_tz_key: str | None = None, target_hour: int | None =
         entries_by_thread.setdefault(e["thread_id"], []).append(e)
 
     schedules = _batch_user_schedules(db, user_ids)
-    default_key = (DEFAULT_TZ.key, DEFAULT_DAY_START_HOUR)
 
     created, skipped = 0, 0
     for t in threads:

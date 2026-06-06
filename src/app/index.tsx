@@ -49,7 +49,9 @@ export default function AppRoot() {
   const voiceSessionRef = useRef<VoiceSessionHandle>(null);
 
   // ── Live data from Supabase ────────────────────────────────────────────────
-  const { data: liveThreads, refetch: refetchThreads } = useThreads();
+  // `today: true` makes the server drop any thread without a today-entry —
+  // belt-and-braces against any stale client bundle showing yesterday's rituals.
+  const { data: liveThreads, refetch: refetchThreads } = useThreads({ today: true });
   const { byId: entriesByActiveId, refetch: refetchEntries } = useActiveEntries(liveThreads);
   const refetchAll = useCallback(() => {
     refetchThreads();

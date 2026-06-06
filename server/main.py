@@ -537,7 +537,7 @@ def list_schedules(x_cron_secret: str = Header(default="")) -> dict:
 # ── Threads ───────────────────────────────────────────────────────────────────
 
 @app.get("/threads", response_model=list[ThreadOut])
-def list_threads(coach_id: str | None = None):
+def list_threads(coach_id: str | None = None, today: bool = False):
     # TODO: auth
     user_id = get_dev_user_id()
     db = get_supabase()
@@ -583,7 +583,12 @@ def list_threads(coach_id: str | None = None):
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
 
-    return [_enrich_thread(t, entries, tz, day_start_hour) for t in threads]
+    out = [_enrich_thread(t, entries, tz, day_start_hour) for t in threads]
+    if today:
+        # Server-side gate for the Today view — drop any thread without a
+        # today-entry so no client cache state can leak yesterday's threads.
+        out = [t for t in out if t.active_entry_id is not None]
+    return out
 
 
 @app.get("/threads/{thread_id}")

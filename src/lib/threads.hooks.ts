@@ -121,7 +121,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
 
 // ── Query hooks ───────────────────────────────────────────────────────────────
 
-export function useThreads(filter?: { coachId?: CoachId }): {
+export function useThreads(filter?: { coachId?: CoachId; today?: boolean }): {
   data: Thread[] | null;
   loading: boolean;
   error: Error | null;
@@ -136,11 +136,14 @@ export function useThreads(filter?: { coachId?: CoachId }): {
     const tick = ++rev.current;
     setLoading(true);
     setError(null);
-    const qs = filter?.coachId ? `?coach_id=${filter.coachId}` : '';
-    apiFetch<WireThread[]>(`/threads${qs}`)
+    const params = new URLSearchParams();
+    if (filter?.coachId) params.set('coach_id', filter.coachId);
+    if (filter?.today) params.set('today', '1');
+    const qs = params.toString();
+    apiFetch<WireThread[]>(`/threads${qs ? `?${qs}` : ''}`)
       .then((rows) => { if (rev.current === tick) { setData(rows.map(toThread)); setLoading(false); } })
       .catch((e) => { if (rev.current === tick) { setError(e); setLoading(false); } });
-  }, [filter?.coachId]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filter?.coachId, filter?.today]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetch(); }, [fetch]);
 

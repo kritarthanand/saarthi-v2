@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
@@ -6,6 +6,14 @@ import type { EntryItem, EntryMessage } from '@/lib/threads';
 import type { SummaryViewProps } from '@/lib/threadTemplates';
 import { Checkbox } from '../Checkbox';
 import { SendIcon } from '../icons';
+
+// Newest user message wins — that's the one the row displays + pre-fills.
+function latestUserMessage(messages: EntryMessage[]): EntryMessage | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role === 'user') return messages[i];
+  }
+  return undefined;
+}
 
 export function EveningRitualSummary({
   entry,
@@ -184,8 +192,15 @@ function EveningCheckboxRow({
   onSend?: (text: string) => void;
 }) {
   const [draft, setDraft] = useState('');
-  const userNote = messages.find((m) => m.role === 'user');
+  const userNote = latestUserMessage(messages);
   const aiResponse = messages.find((m) => m.role === 'ai');
+
+  // Pre-fill the input with the existing note when expanding to edit.
+  useEffect(() => {
+    if (expanded) setDraft(userNote?.text ?? '');
+    // Only re-fire when the expansion toggles, not on every messages change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
 
   const submit = () => {
     const t = draft.trim();
@@ -231,7 +246,7 @@ function EveningCheckboxRow({
             </Text>
           )}
         </View>
-        {!readOnly && !item.done && (
+        {!readOnly && (
           <Pressable
             onPress={onToggleExpand}
             style={{
@@ -241,7 +256,7 @@ function EveningCheckboxRow({
             }}
           >
             <Text style={{ fontSize: 11, color: expanded ? color : Colors.textDim, fontWeight: '600' }}>
-              note
+              {userNote ? 'edit' : 'note'}
             </Text>
           </Pressable>
         )}
@@ -335,9 +350,14 @@ function MorningGoalsReviewRow({
   onSend?: (text: string) => void;
 }) {
   const [draft, setDraft] = useState('');
-  const userAnswer = messages.find((m) => m.role === 'user');
+  const userAnswer = latestUserMessage(messages);
   const aiResponse = messages.find((m) => m.role === 'ai');
   const isDone = item.done || !!userAnswer;
+
+  useEffect(() => {
+    if (expanded) setDraft(userAnswer?.text ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
 
   const submit = () => {
     const t = draft.trim();
@@ -355,7 +375,7 @@ function MorningGoalsReviewRow({
       }}
     >
       <Pressable
-        onPress={() => !readOnly && !isDone && onToggleExpand()}
+        onPress={() => !readOnly && onToggleExpand()}
         style={{
           flexDirection: 'row', alignItems: 'flex-start', gap: 12,
           paddingVertical: 12, paddingHorizontal: 14,
@@ -503,8 +523,13 @@ function EveningPromptRow({
   onSend?: (text: string) => void;
 }) {
   const [draft, setDraft] = useState('');
-  const userAnswer = messages.find((m) => m.role === 'user');
+  const userAnswer = latestUserMessage(messages);
   const aiResponse = messages.find((m) => m.role === 'ai');
+
+  useEffect(() => {
+    if (expanded) setDraft(userAnswer?.text ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
 
   const submit = () => {
     const t = draft.trim();
@@ -522,7 +547,7 @@ function EveningPromptRow({
       }}
     >
       <Pressable
-        onPress={() => !readOnly && !item.done && onToggleExpand()}
+        onPress={() => !readOnly && onToggleExpand()}
         style={{
           flexDirection: 'row', alignItems: 'flex-start', gap: 12,
           paddingVertical: 12, paddingHorizontal: 14,

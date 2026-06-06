@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -98,7 +98,9 @@ export function MorningRitualSummary({
       <View style={{ gap: 6 }}>
         {sorted.map((item) => {
           if (item.meta.type === 'reflection') {
-            const savedText = messages.find((m) => m.item_ref === item.id && m.role === 'user')?.text;
+            // Latest answer wins, so edits supersede earlier attempts.
+            const userMsgsForItem = messages.filter((m) => m.item_ref === item.id && m.role === 'user');
+            const savedText = userMsgsForItem[userMsgsForItem.length - 1]?.text;
             return (
               <MorningReflectionRow
                 key={item.id}
@@ -235,6 +237,12 @@ function MorningReflectionRow({
   const [draft, setDraft] = useState('');
   const isDone = item.done || !!savedText;
 
+  // Pre-fill the input with the current answer when expanding to edit.
+  useEffect(() => {
+    if (expanded) setDraft(savedText ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
   const submit = () => {
     const t = draft.trim();
     if (!t || !onSend) return;
@@ -252,7 +260,7 @@ function MorningReflectionRow({
       }}
     >
       <Pressable
-        onPress={() => !readOnly && !isDone && setExpanded((e) => !e)}
+        onPress={() => !readOnly && setExpanded((e) => !e)}
         style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}
       >
         {/* Pencil-style indicator */}

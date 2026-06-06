@@ -477,8 +477,8 @@ def _sync_reset_schedules() -> dict:
 
     for tz_key, hour in schedules:
         job_id = f"reset:{tz_key}:{hour:02d}"
-        if job_id in existing_resets:
-            continue
+        # replace_existing handles idempotency safely under concurrent calls
+        # (e.g. startup + the :15 resync tick racing on a slow boot).
         _scheduler.add_job(
             _daily_reset_job,
             "cron",
@@ -487,6 +487,7 @@ def _sync_reset_schedules() -> dict:
             timezone=tz_key,
             id=job_id,
             kwargs={"target_tz_key": tz_key, "target_hour": hour},
+            replace_existing=True,
         )
 
     return {

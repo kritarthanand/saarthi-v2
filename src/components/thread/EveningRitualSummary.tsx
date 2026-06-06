@@ -193,7 +193,8 @@ function EveningCheckboxRow({
 }) {
   const [draft, setDraft] = useState('');
   const userNote = latestUserMessage(messages);
-  const aiResponse = messages.find((m) => m.role === 'ai');
+  // Use the latest AI response (Saarthi can follow up); matches latestUserMessage().
+  const aiResponse = messages.findLast((m) => m.role === 'ai');
 
   // Pre-fill the input with the existing note when expanding to edit.
   useEffect(() => {
@@ -351,7 +352,8 @@ function MorningGoalsReviewRow({
 }) {
   const [draft, setDraft] = useState('');
   const userAnswer = latestUserMessage(messages);
-  const aiResponse = messages.find((m) => m.role === 'ai');
+  // Use the latest AI response (Saarthi can follow up); matches latestUserMessage().
+  const aiResponse = messages.findLast((m) => m.role === 'ai');
   const isDone = item.done || !!userAnswer;
 
   useEffect(() => {
@@ -524,7 +526,8 @@ function EveningPromptRow({
 }) {
   const [draft, setDraft] = useState('');
   const userAnswer = latestUserMessage(messages);
-  const aiResponse = messages.find((m) => m.role === 'ai');
+  // Use the latest AI response (Saarthi can follow up); matches latestUserMessage().
+  const aiResponse = messages.findLast((m) => m.role === 'ai');
 
   useEffect(() => {
     if (expanded) setDraft(userAnswer?.text ?? '');

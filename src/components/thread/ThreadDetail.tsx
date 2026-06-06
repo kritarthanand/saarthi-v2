@@ -264,9 +264,14 @@ export function ThreadDetail({
 
     const findUserText = (label: string) => {
       const item = localItems.find((i) => i.label === label);
-      return item
-        ? localMessages.find((m) => m.item_ref === item.id && m.role === 'user')?.text
-        : undefined;
+      if (!item) return undefined;
+      // Mirror the server's _forward_morning_top3 + the latestUserMessage helper
+      // in the summaries: most recent answer wins so edits supersede earlier drafts.
+      for (let i = localMessages.length - 1; i >= 0; i--) {
+        const m = localMessages[i]!;
+        if (m.item_ref === item.id && m.role === 'user') return m.text;
+      }
+      return undefined;
     };
 
     let parts: string[];
@@ -284,8 +289,11 @@ export function ThreadDetail({
       if (timeblockText) parts.push(`Time block:\n${timeblockText}`);
     }
 
-    await patchEntryMeta(activeEntry.id, { ritual_ended_at: new Date().toISOString() });
+    // Send the summary message first; only stamp ritual_ended_at if it succeeds.
+    // The reverse order would leave the ritual stuck in ended+locked with no chat
+    // summary if the network drops mid-call — forcing the user to hit Undo to recover.
     onSendMessage(parts.join('\n\n'));
+    await patchEntryMeta(activeEntry.id, { ritual_ended_at: new Date().toISOString() });
     setTab('chat');
     refetchThread();
   }, [activeEntry, ritualEndedAt, template, localItems, localMessages, onSendMessage, setTab, patchEntryMeta, refetchThread]);

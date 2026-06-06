@@ -113,7 +113,8 @@ export function EveningRitualSummary({
         })}
       </View>
 
-      {!readOnly && onEndRitual && (
+      {/* Stays interactive even when readOnly so Undo is reachable. */}
+      {onEndRitual && (
         <EndEveningRitualButton
           onPress={onEndRitual}
           color={theme.color}

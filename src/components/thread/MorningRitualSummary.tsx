@@ -164,8 +164,9 @@ export function MorningRitualSummary({
         </View>
       )}
 
-      {/* End Morning Ritual / Undo */}
-      {!readOnly && onEndRitual && (
+      {/* End Morning Ritual / Undo — stays interactive even when readOnly,
+          since Undo is the only way out of the ended-and-locked state. */}
+      {onEndRitual && (
         <EndRitualButton
           onPress={onEndRitual}
           color={theme.color}

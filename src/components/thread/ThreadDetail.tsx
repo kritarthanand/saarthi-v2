@@ -640,6 +640,9 @@ function renderSummary(
         onSuggestionChoice={onSuggestionChoice}
         onEndRitual={onEndRitual}
         morningTop3={morningTop3}
+        // Lock items once the ritual is ended — user must Undo to make edits.
+        // The End/Undo button itself stays interactive (it ignores readOnly).
+        readOnly={!!activeEntry.meta.ritual_ended_at}
       />
     );
   }

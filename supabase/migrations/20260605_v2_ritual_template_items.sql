@@ -10,6 +10,21 @@ CREATE TABLE IF NOT EXISTS v2_ritual_template_items (
   meta     jsonb   NOT NULL DEFAULT '{}'::jsonb
 );
 
+-- Unique on (template, section, position) so re-running the seed is a no-op.
+-- NULLS NOT DISTINCT (PG 15+) — without it, two rows with section=NULL and the
+-- same (template, position) are considered distinct and would slip through.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'v2_ritual_template_items_uniq'
+  ) THEN
+    ALTER TABLE v2_ritual_template_items
+      ADD CONSTRAINT v2_ritual_template_items_uniq
+      UNIQUE NULLS NOT DISTINCT (template, section, position);
+  END IF;
+END $$;
+
 INSERT INTO v2_ritual_template_items (template, position, label, points, section, meta) VALUES
   ('morning_ritual', 0,  'Weight measurement',      2, NULL, '{"type":"action"}'),
   ('morning_ritual', 1,  'Dental Care',              2, NULL, '{"type":"action"}'),
@@ -37,4 +52,5 @@ INSERT INTO v2_ritual_template_items (template, position, label, points, section
   ('weekly_ritual',  0,  'What''s the one most important thing this week?', 5, 'plan', '{"type":"reflection"}'),
   ('weekly_ritual',  1,  'Which habits do you want to protect?',             5, 'plan', '{"type":"reflection"}'),
   ('weekly_ritual',  2,  'What will you do differently vs last week?',       5, 'plan', '{"type":"reflection"}'),
-  ('weekly_ritual',  3,  'Any blocks or challenges to watch for?',           5, 'plan', '{"type":"reflection"}');
+  ('weekly_ritual',  3,  'Any blocks or challenges to watch for?',           5, 'plan', '{"type":"reflection"}')
+ON CONFLICT ON CONSTRAINT v2_ritual_template_items_uniq DO NOTHING;

@@ -69,10 +69,17 @@ export default function AppRoot() {
   }, [liveThreads, entriesByActiveId]);
 
   // Today view only shows threads whose active entry was created today (server
-  // enforces this — it nulls out active_entry_id for stale entries).
+  // enforces this — it nulls out active_entry_id for stale entries). Filter by
+  // matching thread id, not array index, so it stays correct if `threads` and
+  // `liveThreads` ever diverge in order or length (coach filters, optimistic
+  // updates, etc.).
+  const todayThreadIds = useMemo(
+    () => new Set((liveThreads ?? []).filter((t) => !!t.activeEntryId).map((t) => t.id)),
+    [liveThreads],
+  );
   const todayThreads = useMemo<Thread[]>(
-    () => threads.filter((_, i) => !!(liveThreads ?? [])[i]?.activeEntryId),
-    [threads, liveThreads],
+    () => threads.filter((t) => todayThreadIds.has(t.id)),
+    [threads, todayThreadIds],
   );
 
   // Quick lookup: thread.id → activeEntryId, for mutations.

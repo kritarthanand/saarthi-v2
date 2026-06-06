@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 
@@ -17,7 +17,10 @@ _scheduler = BackgroundScheduler(timezone="UTC")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    _scheduler.add_job(_daily_reset_job, "cron", minute=0, id="daily_reset")
+    # Hourly at :00 — each user's day_start_hour falls on one of these ticks
+    # regardless of timezone. Per-thread checks inside the job skip any user
+    # whose ritual day hasn't rolled over yet.
+    _scheduler.add_job(_daily_reset_job, "cron", minute=0, id="hourly_reset")
     _scheduler.start()
     yield
     _scheduler.shutdown(wait=False)
@@ -159,7 +162,7 @@ def _safe_tz(tz_str: str) -> ZoneInfo:
     try:
         return ZoneInfo(tz_str)
     except (ZoneInfoNotFoundError, Exception):
-        return ZoneInfo("America/Los_Angeles")
+        return ZoneInfo("America/Los_Angeles")  # DEFAULT_TZ defined below
 
 
 def _ritual_date(dt: datetime, tz: ZoneInfo, day_start_hour: int) -> date:
@@ -185,6 +188,19 @@ def _is_today(created_at_str: str, tz: ZoneInfo, day_start_hour: int) -> bool:
         return False
 
 
+DEFAULT_TZ = ZoneInfo("America/Los_Angeles")
+DEFAULT_DAY_START_HOUR = 0
+
+
+def _row_to_schedule(row: dict | None) -> tuple[ZoneInfo, int]:
+    if not row:
+        return DEFAULT_TZ, DEFAULT_DAY_START_HOUR
+    return (
+        _safe_tz(row.get("timezone") or "America/Los_Angeles"),
+        int(row.get("day_start_hour") or 0),
+    )
+
+
 def _get_user_schedule(db: Client, user_id: str) -> tuple[ZoneInfo, int]:
     """Return (timezone, day_start_hour) from v2_profiles, falling back to defaults."""
     try:
@@ -196,11 +212,29 @@ def _get_user_schedule(db: Client, user_id: str) -> tuple[ZoneInfo, int]:
             .execute()
             .data
         )
-        if row:
-            return _safe_tz(row.get("timezone") or "America/Los_Angeles"), int(row.get("day_start_hour") or 0)
+        return _row_to_schedule(row)
+    except Exception:
+        return DEFAULT_TZ, DEFAULT_DAY_START_HOUR
+
+
+def _batch_user_schedules(db: Client, user_ids: list[str]) -> dict[str, tuple[ZoneInfo, int]]:
+    """One-shot fetch of schedules for many users; missing ids get the defaults."""
+    if not user_ids:
+        return {}
+    out: dict[str, tuple[ZoneInfo, int]] = {uid: (DEFAULT_TZ, DEFAULT_DAY_START_HOUR) for uid in user_ids}
+    try:
+        rows = (
+            db.table("v2_profiles")
+            .select("id, timezone, day_start_hour")
+            .in_("id", user_ids)
+            .execute()
+            .data
+        )
+        for row in rows or []:
+            out[row["id"]] = _row_to_schedule(row)
     except Exception:
         pass
-    return ZoneInfo("America/Los_Angeles"), 0
+    return out
 
 
 def _enrich_thread(
@@ -275,27 +309,8 @@ def _row_to_message(row: dict) -> EntryMessageOut:
 DAILY_RESET_TEMPLATES = ("morning_ritual", "evening_ritual")
 
 
-def _ensure_today_entry(
-    db: Client, thread_id: str, template: str, tz: ZoneInfo, day_start_hour: int
-) -> str | None:
-    """Create today's entry for a ritual thread if one doesn't exist yet.
-
-    Returns the entry id (new or existing). Previous days' entries are left
-    untouched — they stay active so history is preserved.
-    """
-    all_entries = (
-        db.table("v2_thread_entries")
-        .select("id, created_at, status")
-        .eq("thread_id", thread_id)
-        .execute()
-        .data
-    )
-
-    for e in all_entries:
-        if _is_today(e["created_at"], tz, day_start_hour):
-            return e["id"]
-
-    # No entry for today — create one.
+def _create_today_entry(db: Client, thread_id: str, template: str) -> str:
+    """Insert today's entry for a thread and seed its template items. Returns the new entry id."""
     row = (
         db.table("v2_thread_entries")
         .insert({"thread_id": thread_id, "meta": {}})
@@ -321,11 +336,42 @@ def _ensure_today_entry(
     return entry_id
 
 
+def _ensure_today_entry(
+    db: Client,
+    thread_id: str,
+    template: str,
+    tz: ZoneInfo,
+    day_start_hour: int,
+    known_entries: list[dict] | None = None,
+) -> str | None:
+    """Return the existing today-entry id for a thread, creating one if missing.
+
+    If `known_entries` is provided it's used in lieu of a fresh DB read — pass
+    pre-fetched rows (filtered to this thread) to avoid an N+1 query.
+    """
+    entries = known_entries
+    if entries is None:
+        entries = (
+            db.table("v2_thread_entries")
+            .select("id, created_at, status")
+            .eq("thread_id", thread_id)
+            .execute()
+            .data
+        )
+
+    for e in entries:
+        if _is_today(e["created_at"], tz, day_start_hour):
+            return e["id"]
+
+    return _create_today_entry(db, thread_id, template)
+
+
 def _daily_reset_job() -> dict:
     """Ensure today's entries exist for all morning/evening ritual threads.
 
-    Runs hourly so it catches every user's day_start_hour regardless of timezone.
-    Previous entries are left as-is. Safe to call manually via POST /cron/daily-reset.
+    Runs hourly — each user's day_start_hour hits one of these ticks regardless
+    of timezone, and the per-user `_is_today` check skips users whose ritual day
+    hasn't rolled over yet. Previous entries are left as-is.
     """
     db = get_supabase()
 
@@ -336,23 +382,33 @@ def _daily_reset_job() -> dict:
         .execute()
         .data
     )
+    if not threads:
+        return {"created": 0, "skipped": 0}
+
+    thread_ids = [t["id"] for t in threads]
+    user_ids = list({t["user_id"] for t in threads})
+
+    # Batch-fetch all entries and all schedules in two queries.
+    entries_by_thread: dict[str, list[dict]] = {tid: [] for tid in thread_ids}
+    for e in (
+        db.table("v2_thread_entries")
+        .select("id, thread_id, created_at")
+        .in_("thread_id", thread_ids)
+        .execute()
+        .data
+    ):
+        entries_by_thread.setdefault(e["thread_id"], []).append(e)
+
+    schedules = _batch_user_schedules(db, user_ids)
 
     created, skipped = 0, 0
-
     for t in threads:
-        tz, day_start_hour = _get_user_schedule(db, t["user_id"])
-        all_entries = (
-            db.table("v2_thread_entries")
-            .select("id, created_at")
-            .eq("thread_id", t["id"])
-            .execute()
-            .data
-        )
-        if any(_is_today(e["created_at"], tz, day_start_hour) for e in all_entries):
+        tz, day_start_hour = schedules[t["user_id"]]
+        thread_entries = entries_by_thread.get(t["id"], [])
+        if any(_is_today(e["created_at"], tz, day_start_hour) for e in thread_entries):
             skipped += 1
             continue
-
-        _ensure_today_entry(db, t["id"], t["template"], tz, day_start_hour)
+        _ensure_today_entry(db, t["id"], t["template"], tz, day_start_hour, known_entries=thread_entries)
         created += 1
 
     return {"created": created, "skipped": skipped}
@@ -366,8 +422,16 @@ def health() -> dict[str, str]:
 
 
 @app.post("/cron/daily-reset")
-def trigger_daily_reset() -> dict:
-    """Manually trigger the 4 AM daily-reset job (useful for testing / backfill)."""
+def trigger_daily_reset(x_cron_secret: str = Header(default="")) -> dict:
+    """Manually trigger the hourly reset job (useful for testing / backfill).
+
+    Requires the X-Cron-Secret header to match the CRON_SECRET env var. If
+    CRON_SECRET is unset the endpoint is disabled — preventing accidental
+    unauthenticated writes in any environment.
+    """
+    expected = os.environ.get("CRON_SECRET", "")
+    if not expected or x_cron_secret != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
     return _daily_reset_job()
 
 
@@ -410,14 +474,15 @@ def list_threads(coach_id: str | None = None):
         )
     }
     for thread_id, template in needs_today.items():
-        new_entry_id = _ensure_today_entry(db, thread_id, template, tz, day_start_hour)
-        if new_entry_id:
-            entries.append({
-                "id": new_entry_id,
-                "thread_id": thread_id,
-                "status": "active",
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            })
+        # We already know there's no today-entry — call the create helper directly
+        # so we don't re-fetch the rows we already have.
+        new_entry_id = _create_today_entry(db, thread_id, template)
+        entries.append({
+            "id": new_entry_id,
+            "thread_id": thread_id,
+            "status": "active",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
 
     return [_enrich_thread(t, entries, tz, day_start_hour) for t in threads]
 
@@ -547,9 +612,12 @@ def create_entry(thread_id: str, body: CreateEntryBody):
         .execute()
         .data
     ) if template else []
-    if template_items:
+    # Template rows win when present; otherwise fall back to caller-supplied items
+    # so non-ritual threads (and ad-hoc test fixtures) keep working.
+    items_to_insert = template_items if template_items else (body.items or [])
+    if items_to_insert:
         result = db.table("v2_entry_items").insert(
-            [{**item, "entry_id": entry_id} for item in template_items]
+            [{**item, "entry_id": entry_id} for item in items_to_insert]
         ).execute()
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to seed entry items")
@@ -614,16 +682,18 @@ def _forward_morning_top3(db: Client, morning_entry_id: str, user_id: str) -> No
 
     msgs = (
         db.table("v2_entry_messages")
-        .select("text")
+        .select("text, created_at")
         .eq("entry_id", morning_entry_id)
         .eq("item_ref", item_id)
         .eq("role", "user")
+        .order("created_at")
         .execute()
         .data
     )
     if not msgs:
         return
-    top3_text = msgs[0]["text"]
+    # Last message wins — edits and corrections supersede the first attempt.
+    top3_text = msgs[-1]["text"]
 
     evening_threads = (
         db.table("v2_threads")

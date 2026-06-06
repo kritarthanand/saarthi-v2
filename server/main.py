@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from postgrest.exceptions import APIError as PostgRESTAPIError
 from supabase import create_client, Client
 
 load_dotenv()
@@ -329,13 +330,36 @@ DAILY_RESET_TEMPLATES = ("morning_ritual", "evening_ritual")
 
 
 def _create_today_entry(db: Client, thread_id: str, template: str) -> str:
-    """Insert today's entry for a thread and seed its template items. Returns the new entry id."""
-    row = (
-        db.table("v2_thread_entries")
-        .insert({"thread_id": thread_id, "meta": {}})
-        .execute()
-        .data[0]
-    )
+    """Insert today's entry for a thread and seed its template items. Returns the new entry id.
+
+    If two concurrent requests both race past the "no today-entry" check and both try to
+    insert, the second will hit the v2_thread_entries_one_active_id unique constraint.
+    In that case we fall back to fetching the entry the winner already created.
+    """
+    try:
+        row = (
+            db.table("v2_thread_entries")
+            .insert({"thread_id": thread_id, "meta": {}})
+            .execute()
+            .data[0]
+        )
+    except PostgRESTAPIError as e:
+        msg = str(e)
+        if "v2_thread_entries_one_active_id" in msg or "duplicate key" in msg:
+            # Lost the race — another request already created the entry. Fetch it.
+            existing = (
+                db.table("v2_thread_entries")
+                .select("id")
+                .eq("thread_id", thread_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+                .data
+            )
+            if existing:
+                return existing[0]["id"]
+        raise
+
     entry_id = row["id"]
 
     template_items = (

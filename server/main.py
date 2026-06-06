@@ -101,43 +101,6 @@ class CreateMessageBody(BaseModel):
     meta: dict[str, Any] = {}
 
 
-RITUAL_ITEMS: dict[str, list[dict]] = {
-    "morning_ritual": [
-        {"position": 0,  "label": "Weight measurement",       "points": 2, "section": None, "meta": {"type": "action"}},
-        {"position": 1,  "label": "Dental Care",               "points": 2, "section": None, "meta": {"type": "action"}},
-        {"position": 2,  "label": "Shower",                    "points": 4, "section": None, "meta": {"type": "action"}},
-        {"position": 3,  "label": "Skin Care",                 "points": 3, "section": None, "meta": {"type": "action"}},
-        {"position": 4,  "label": "Dress + Puja",              "points": 5, "section": None, "meta": {"type": "action"}},
-        {"position": 5,  "label": "Pills",                     "points": 3, "section": None, "meta": {"type": "action"}},
-        {"position": 6,  "label": "Get Water",                 "points": 2, "section": None, "meta": {"type": "action"}},
-        {"position": 7,  "label": "Defrost food",              "points": 2, "section": None, "meta": {"type": "action"}},
-        {"position": 8,  "label": "Review Weekly Goals",       "points": 5, "section": None, "meta": {"type": "action"}},
-        {"position": 9,  "label": "Visualize",                 "points": 5, "section": None, "meta": {"type": "action"}},
-        {"position": 10, "label": "Top 3 Goals for the day",   "points": 8, "section": None, "meta": {"type": "reflection"}},
-        {"position": 11, "label": "Time Block for the day",    "points": 6, "section": None, "meta": {"type": "reflection"}},
-        {"position": 12, "label": "Read 10 min",               "points": 5, "section": None, "meta": {"type": "action"}},
-    ],
-    "evening_ritual": [
-        {"position": 0, "label": "Meal Logs for the day",               "points": 5, "section": None, "meta": {"type": "action"}},
-        {"position": 1, "label": "Workout for the day",                 "points": 5, "section": None, "meta": {"type": "action"}},
-        {"position": 2, "label": "Review top 3 priorities for the day", "points": 8, "section": None, "meta": {"type": "morning_review"}},
-        {"position": 3, "label": "Review focus sessions",               "points": 5, "section": None, "meta": {"type": "action"}},
-        {"position": 4, "label": "Plan the next day",                   "points": 8, "section": None, "meta": {"type": "reflection"}},
-    ],
-    "weekly_ritual": [
-        {"position": 0, "label": "What were your 3 biggest wins this week?",    "points": 5, "section": "review", "meta": {"type": "reflection"}},
-        {"position": 1, "label": "What drained you the most?",                  "points": 5, "section": "review", "meta": {"type": "reflection"}},
-        {"position": 2, "label": "Where did you lose focus or time?",           "points": 5, "section": "review", "meta": {"type": "reflection"}},
-        {"position": 3, "label": "One thing you're proud of yourself for",      "points": 5, "section": "review", "meta": {"type": "reflection"}},
-        {"position": 4, "label": "Which habit or ritual needs more attention?", "points": 5, "section": "review", "meta": {"type": "reflection"}},
-        {"position": 0, "label": "What's the one most important thing this week?", "points": 5, "section": "plan", "meta": {"type": "reflection"}},
-        {"position": 1, "label": "Which habits do you want to protect?",           "points": 5, "section": "plan", "meta": {"type": "reflection"}},
-        {"position": 2, "label": "What will you do differently vs last week?",     "points": 5, "section": "plan", "meta": {"type": "reflection"}},
-        {"position": 3, "label": "Any blocks or challenges to watch for?",         "points": 5, "section": "plan", "meta": {"type": "reflection"}},
-    ],
-}
-
-
 # ── Ownership helpers (service key bypasses RLS — we enforce auth in code) ────
 
 def _assert_entry_owner(db: Client, entry_id: str, user_id: str) -> dict:
@@ -383,10 +346,18 @@ def create_entry(thread_id: str, body: CreateEntryBody):
     # an active entry with no items/messages. The caller must close it before retrying.
     # Acceptable tradeoff — multi-table transactions require a DB function or RPC.
     template = thread_rows[0].get("template")
-    items_to_seed = RITUAL_ITEMS.get(template, [])
-    if items_to_seed:
+    template_items = (
+        db.table("v2_ritual_template_items")
+        .select("position, label, points, section, meta")
+        .eq("template", template)
+        .order("section", nullsfirst=True)
+        .order("position")
+        .execute()
+        .data
+    ) if template else []
+    if template_items:
         result = db.table("v2_entry_items").insert(
-            [{**item, "entry_id": entry_id} for item in items_to_seed]
+            [{**item, "entry_id": entry_id} for item in template_items]
         ).execute()
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to seed entry items")

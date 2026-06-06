@@ -68,6 +68,13 @@ export default function AppRoot() {
     );
   }, [liveThreads, entriesByActiveId]);
 
+  // Today view only shows threads whose active entry was created today (server
+  // enforces this — it nulls out active_entry_id for stale entries).
+  const todayThreads = useMemo<Thread[]>(
+    () => threads.filter((_, i) => !!(liveThreads ?? [])[i]?.activeEntryId),
+    [threads, liveThreads],
+  );
+
   // Quick lookup: thread.id → activeEntryId, for mutations.
   const activeEntryIdByThread = useMemo(() => {
     const map: Record<string, string> = {};
@@ -161,7 +168,7 @@ export default function AppRoot() {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
         {tab === 'today' && (
-          <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
+          <TodayView threads={todayThreads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
         )}
         {tab === 'chat' && (
           <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
@@ -262,7 +269,7 @@ export default function AppRoot() {
           overflow: 'hidden', backgroundColor: Colors.bg,
         }}
       >
-        {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
+        {tab === 'today' && <TodayView threads={todayThreads} onOpenThread={setOpenThreadId} topInset={28} />}
         {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
         {tab === 'coaches' && (

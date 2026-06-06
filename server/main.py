@@ -1,7 +1,10 @@
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -9,7 +12,19 @@ from supabase import create_client, Client
 
 load_dotenv()
 
-app = FastAPI(title="Saarthi V2", version="0.1.0")
+LA_TZ = ZoneInfo("America/Los_Angeles")
+_scheduler = BackgroundScheduler(timezone="America/Los_Angeles")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _scheduler.add_job(_daily_reset_job, "cron", hour=4, minute=0, id="daily_reset")
+    _scheduler.start()
+    yield
+    _scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="Saarthi V2", version="0.1.0", lifespan=lifespan)
 
 # ── Supabase client ───────────────────────────────────────────────────────────
 
@@ -141,10 +156,26 @@ def _parse_ts(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
+def _is_today_la(created_at_str: str) -> bool:
+    """Return True if the timestamp falls on today's date in LA time."""
+    try:
+        dt = _parse_ts(created_at_str).astimezone(LA_TZ)
+        return dt.date() == datetime.now(LA_TZ).date()
+    except Exception:
+        return False
+
+
 def _enrich_thread(thread_row: dict, entries: list[dict]) -> ThreadOut:
-    """Attach active_entry_id and last_entry_at computed from entries."""
+    """Attach active_entry_id and last_entry_at computed from entries.
+
+    active_entry_id is only set when the entry was created today (LA time) —
+    so the Today view never surfaces a stale entry from a previous day.
+    """
     thread_entries = [e for e in entries if e["thread_id"] == thread_row["id"]]
-    active = next((e for e in thread_entries if e["status"] == "active"), None)
+    active = next(
+        (e for e in thread_entries if e["status"] == "active" and _is_today_la(e["created_at"])),
+        None,
+    )
     last = max(thread_entries, key=lambda e: _parse_ts(e["created_at"]), default=None)
     return ThreadOut(
         id=thread_row["id"],
@@ -196,11 +227,91 @@ def _row_to_message(row: dict) -> EntryMessageOut:
     )
 
 
+# ── Daily reset ───────────────────────────────────────────────────────────────
+
+DAILY_RESET_TEMPLATES = ("morning_ritual", "evening_ritual")
+
+
+def _daily_reset_job() -> dict:
+    """Close yesterday's open entries and create fresh ones for today.
+
+    Runs at 4:00 AM America/Los_Angeles. Safe to call manually via
+    POST /cron/daily-reset (e.g. to backfill after a missed run).
+    """
+    db = get_supabase()
+    now_utc = datetime.now(timezone.utc).isoformat()
+    today_la = datetime.now(LA_TZ).date()
+
+    threads = (
+        db.table("v2_threads")
+        .select("id, user_id, template")
+        .in_("template", list(DAILY_RESET_TEMPLATES))
+        .execute()
+        .data
+    )
+
+    created, skipped, closed = 0, 0, 0
+    for t in threads:
+        thread_id, template = t["id"], t["template"]
+
+        active = (
+            db.table("v2_thread_entries")
+            .select("id, created_at")
+            .eq("thread_id", thread_id)
+            .eq("status", "active")
+            .execute()
+            .data
+        )
+
+        if active:
+            entry_date = _parse_ts(active[0]["created_at"]).astimezone(LA_TZ).date()
+            if entry_date == today_la:
+                skipped += 1
+                continue
+            # Close the stale entry
+            db.table("v2_thread_entries").update(
+                {"status": "closed", "closed_at": now_utc}
+            ).eq("id", active[0]["id"]).execute()
+            closed += 1
+
+        # Create today's entry
+        row = (
+            db.table("v2_thread_entries")
+            .insert({"thread_id": thread_id, "meta": {}})
+            .execute()
+            .data[0]
+        )
+        entry_id = row["id"]
+
+        template_items = (
+            db.table("v2_ritual_template_items")
+            .select("position, label, points, section, meta")
+            .eq("template", template)
+            .order("section", nullsfirst=True)
+            .order("position")
+            .execute()
+            .data
+        )
+        if template_items:
+            db.table("v2_entry_items").insert(
+                [{**item, "entry_id": entry_id} for item in template_items]
+            ).execute()
+        created += 1
+
+    return {"created": created, "closed": closed, "skipped": skipped}
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "saarthi-v2"}
+
+
+@app.post("/cron/daily-reset")
+def trigger_daily_reset() -> dict:
+    """Manually trigger the 4 AM daily-reset job (useful for testing / backfill)."""
+    return _daily_reset_job()
 
 
 # ── Threads ───────────────────────────────────────────────────────────────────

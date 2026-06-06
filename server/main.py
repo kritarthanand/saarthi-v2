@@ -232,73 +232,87 @@ def _row_to_message(row: dict) -> EntryMessageOut:
 DAILY_RESET_TEMPLATES = ("morning_ritual", "evening_ritual")
 
 
-def _daily_reset_job() -> dict:
-    """Close yesterday's open entries and create fresh ones for today.
+def _ensure_today_entry(db: Client, thread_id: str, template: str) -> str | None:
+    """Create today's entry for a ritual thread if one doesn't exist yet.
 
-    Runs at 4:00 AM America/Los_Angeles. Safe to call manually via
-    POST /cron/daily-reset (e.g. to backfill after a missed run).
+    Returns the entry id (new or existing). Previous days' entries are left
+    untouched — they stay active so history is preserved.
+    """
+    today_la = datetime.now(LA_TZ).date()
+
+    all_entries = (
+        db.table("v2_thread_entries")
+        .select("id, created_at, status")
+        .eq("thread_id", thread_id)
+        .execute()
+        .data
+    )
+
+    for e in all_entries:
+        if _is_today_la(e["created_at"]):
+            return e["id"]
+
+    # No entry for today — create one.
+    row = (
+        db.table("v2_thread_entries")
+        .insert({"thread_id": thread_id, "meta": {}})
+        .execute()
+        .data[0]
+    )
+    entry_id = row["id"]
+
+    template_items = (
+        db.table("v2_ritual_template_items")
+        .select("position, label, points, section, meta")
+        .eq("template", template)
+        .order("section", nullsfirst=True)
+        .order("position")
+        .execute()
+        .data
+    )
+    if template_items:
+        db.table("v2_entry_items").insert(
+            [{**item, "entry_id": entry_id} for item in template_items]
+        ).execute()
+
+    return entry_id
+
+
+def _daily_reset_job() -> dict:
+    """Ensure today's entries exist for all morning/evening ritual threads.
+
+    Runs at 4:00 AM America/Los_Angeles. Previous entries are left as-is.
+    Safe to call manually via POST /cron/daily-reset.
     """
     db = get_supabase()
-    now_utc = datetime.now(timezone.utc).isoformat()
-    today_la = datetime.now(LA_TZ).date()
 
     threads = (
         db.table("v2_threads")
-        .select("id, user_id, template")
+        .select("id, template")
         .in_("template", list(DAILY_RESET_TEMPLATES))
         .execute()
         .data
     )
 
-    created, skipped, closed = 0, 0, 0
-    for t in threads:
-        thread_id, template = t["id"], t["template"]
+    created, skipped = 0, 0
+    today_la = datetime.now(LA_TZ).date()
 
-        active = (
+    for t in threads:
+        all_entries = (
             db.table("v2_thread_entries")
             .select("id, created_at")
-            .eq("thread_id", thread_id)
-            .eq("status", "active")
+            .eq("thread_id", t["id"])
             .execute()
             .data
         )
+        if any(_is_today_la(e["created_at"]) for e in all_entries):
+            skipped += 1
+            continue
 
-        if active:
-            entry_date = _parse_ts(active[0]["created_at"]).astimezone(LA_TZ).date()
-            if entry_date == today_la:
-                skipped += 1
-                continue
-            # Close the stale entry
-            db.table("v2_thread_entries").update(
-                {"status": "closed", "closed_at": now_utc}
-            ).eq("id", active[0]["id"]).execute()
-            closed += 1
-
-        # Create today's entry
-        row = (
-            db.table("v2_thread_entries")
-            .insert({"thread_id": thread_id, "meta": {}})
-            .execute()
-            .data[0]
-        )
-        entry_id = row["id"]
-
-        template_items = (
-            db.table("v2_ritual_template_items")
-            .select("position, label, points, section, meta")
-            .eq("template", template)
-            .order("section", nullsfirst=True)
-            .order("position")
-            .execute()
-            .data
-        )
-        if template_items:
-            db.table("v2_entry_items").insert(
-                [{**item, "entry_id": entry_id} for item in template_items]
-            ).execute()
+        _ensure_today_entry(db, t["id"], t["template"])
         created += 1
 
-    return {"created": created, "closed": closed, "skipped": skipped}
+    return {"created": created, "skipped": skipped}
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -338,6 +352,24 @@ def list_threads(coach_id: str | None = None):
         .execute()
         .data
     )
+
+    # Lazy-create today's entry for any ritual thread that doesn't have one yet
+    # (handles the case where the 4am cron missed a run).
+    needs_today = {
+        t["id"]: t["template"]
+        for t in threads
+        if t["template"] in DAILY_RESET_TEMPLATES
+        and not any(e["thread_id"] == t["id"] and _is_today_la(e["created_at"]) for e in entries)
+    }
+    for thread_id, template in needs_today.items():
+        new_entry_id = _ensure_today_entry(db, thread_id, template)
+        if new_entry_id:
+            entries.append({
+                "id": new_entry_id,
+                "thread_id": thread_id,
+                "status": "active",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
 
     return [_enrich_thread(t, entries) for t in threads]
 

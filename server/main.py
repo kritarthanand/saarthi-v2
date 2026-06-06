@@ -17,10 +17,13 @@ _scheduler = BackgroundScheduler(timezone="UTC")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Hourly at :00 — each user's day_start_hour falls on one of these ticks
-    # regardless of timezone. Per-thread checks inside the job skip any user
-    # whose ritual day hasn't rolled over yet.
-    _scheduler.add_job(_daily_reset_job, "cron", minute=0, id="hourly_reset")
+    _sync_reset_schedules()
+    # Re-sync once an hour so profile edits (timezone / day_start_hour changes)
+    # take effect without a server restart. Cheap — distinct schedules across N
+    # users is at most ~24 buckets, two SELECTs.
+    _scheduler.add_job(
+        _sync_reset_schedules, "cron", minute=15, id="resync_schedules"
+    )
     _scheduler.start()
     yield
     _scheduler.shutdown(wait=False)
@@ -366,14 +369,16 @@ def _ensure_today_entry(
     return _create_today_entry(db, thread_id, template)
 
 
-def _daily_reset_job() -> dict:
-    """Ensure today's entries exist for all morning/evening ritual threads.
+def _daily_reset_job(target_tz_key: str | None = None, target_hour: int | None = None) -> dict:
+    """Ensure today's entries exist for ritual threads.
 
-    Runs hourly — each user's day_start_hour hits one of these ticks regardless
-    of timezone, and the per-user `_is_today` check skips users whose ritual day
-    hasn't rolled over yet. Previous entries are left as-is.
+    Without args, processes every user (used by manual /cron/daily-reset trigger).
+    With (target_tz_key, target_hour), processes only users whose profile matches
+    that schedule — the per-schedule cron jobs registered by `_sync_reset_schedules`
+    call it this way so each user is touched exactly when their day rolls over.
     """
     db = get_supabase()
+    scoped = target_tz_key is not None and target_hour is not None
 
     threads = (
         db.table("v2_threads")
@@ -383,12 +388,11 @@ def _daily_reset_job() -> dict:
         .data
     )
     if not threads:
-        return {"created": 0, "skipped": 0}
+        return {"created": 0, "skipped": 0, "scope": _scope_label(target_tz_key, target_hour)}
 
     thread_ids = [t["id"] for t in threads]
     user_ids = list({t["user_id"] for t in threads})
 
-    # Batch-fetch all entries and all schedules in two queries.
     entries_by_thread: dict[str, list[dict]] = {tid: [] for tid in thread_ids}
     for e in (
         db.table("v2_thread_entries")
@@ -400,10 +404,19 @@ def _daily_reset_job() -> dict:
         entries_by_thread.setdefault(e["thread_id"], []).append(e)
 
     schedules = _batch_user_schedules(db, user_ids)
+    default_key = (DEFAULT_TZ.key, DEFAULT_DAY_START_HOUR)
 
     created, skipped = 0, 0
     for t in threads:
         tz, day_start_hour = schedules[t["user_id"]]
+        if scoped:
+            user_key = (tz.key, day_start_hour)
+            # The default-schedule job is responsible for any user whose profile
+            # matches the default — including users with no profile row at all
+            # (they fall through to DEFAULT_TZ/DEFAULT_DAY_START_HOUR in batch_user_schedules).
+            if user_key != (target_tz_key, target_hour):
+                continue
+
         thread_entries = entries_by_thread.get(t["id"], [])
         if any(_is_today(e["created_at"], tz, day_start_hour) for e in thread_entries):
             skipped += 1
@@ -411,7 +424,60 @@ def _daily_reset_job() -> dict:
         _ensure_today_entry(db, t["id"], t["template"], tz, day_start_hour, known_entries=thread_entries)
         created += 1
 
-    return {"created": created, "skipped": skipped}
+    return {"created": created, "skipped": skipped, "scope": _scope_label(target_tz_key, target_hour)}
+
+
+def _scope_label(tz_key: str | None, hour: int | None) -> str:
+    if tz_key is None or hour is None:
+        return "all"
+    return f"{tz_key}@{hour:02d}"
+
+
+def _sync_reset_schedules() -> dict:
+    """Register one cron job per distinct (timezone, day_start_hour) in v2_profiles.
+
+    Always includes the default (DEFAULT_TZ, DEFAULT_DAY_START_HOUR) so users
+    without a profile row are still covered. Idempotent — removes stale schedules
+    and adds new ones, called both at startup and on a refresh tick.
+    """
+    db = get_supabase()
+    schedules: set[tuple[str, int]] = {(DEFAULT_TZ.key, DEFAULT_DAY_START_HOUR)}
+    try:
+        rows = db.table("v2_profiles").select("timezone, day_start_hour").execute().data or []
+        for row in rows:
+            tz = _safe_tz(row.get("timezone") or "America/Los_Angeles")
+            hour = int(row.get("day_start_hour") or 0)
+            schedules.add((tz.key, hour))
+    except Exception:
+        # If profiles can't be read, fall back to just the default schedule —
+        # better to fire once a day at LA midnight than to silently skip everything.
+        pass
+
+    desired_job_ids = {f"reset:{tz_key}:{hour:02d}" for tz_key, hour in schedules}
+    existing_resets = {j.id for j in _scheduler.get_jobs() if j.id.startswith("reset:")}
+
+    for stale in existing_resets - desired_job_ids:
+        _scheduler.remove_job(stale)
+
+    for tz_key, hour in schedules:
+        job_id = f"reset:{tz_key}:{hour:02d}"
+        if job_id in existing_resets:
+            continue
+        _scheduler.add_job(
+            _daily_reset_job,
+            "cron",
+            hour=hour,
+            minute=0,
+            timezone=tz_key,
+            id=job_id,
+            kwargs={"target_tz_key": tz_key, "target_hour": hour},
+        )
+
+    return {
+        "active_schedules": sorted(desired_job_ids),
+        "added": sorted(desired_job_ids - existing_resets),
+        "removed": sorted(existing_resets - desired_job_ids),
+    }
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -423,7 +489,7 @@ def health() -> dict[str, str]:
 
 @app.post("/cron/daily-reset")
 def trigger_daily_reset(x_cron_secret: str = Header(default="")) -> dict:
-    """Manually trigger the hourly reset job (useful for testing / backfill).
+    """Manually trigger the reset job across all users (useful for testing / backfill).
 
     Requires the X-Cron-Secret header to match the CRON_SECRET env var. If
     CRON_SECRET is unset the endpoint is disabled — preventing accidental
@@ -433,6 +499,23 @@ def trigger_daily_reset(x_cron_secret: str = Header(default="")) -> dict:
     if not expected or x_cron_secret != expected:
         raise HTTPException(status_code=403, detail="Forbidden")
     return _daily_reset_job()
+
+
+@app.get("/cron/schedules")
+def list_schedules(x_cron_secret: str = Header(default="")) -> dict:
+    """List the currently-registered reset cron schedules (auth-gated for parity)."""
+    expected = os.environ.get("CRON_SECRET", "")
+    if not expected or x_cron_secret != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    jobs = []
+    for j in _scheduler.get_jobs():
+        if not j.id.startswith("reset:"):
+            continue
+        jobs.append({
+            "id": j.id,
+            "next_run_at": str(j.next_run_time) if j.next_run_time else None,
+        })
+    return {"jobs": sorted(jobs, key=lambda x: x["id"])}
 
 
 # ── Threads ───────────────────────────────────────────────────────────────────

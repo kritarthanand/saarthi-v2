@@ -142,7 +142,15 @@ export function ThreadDetail({
 
   const handleRitualSend = (text: string, itemId?: string) => {
     if (itemId) {
-      setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done: true } : i)));
+      const item = localItems.find((i) => i.id === itemId);
+      // For reflection / morning_review rows, "done" is implied by having a
+      // user message — flip the local checkbox optimistically. Action rows
+      // own their own checkbox; sending a note must not mark them done.
+      const itemType = item?.meta?.type as string | undefined;
+      const autoDone = itemType !== 'action';
+      if (autoDone) {
+        setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done: true } : i)));
+      }
       const msg: EntryMessage = {
         id: `local-${Date.now()}`,
         entry_id: activeEntry?.id ?? '',
@@ -153,8 +161,6 @@ export function ThreadDetail({
         created_at: new Date().toISOString(),
       };
       setLocalMessages((prev) => [...prev, msg]);
-      // Find the item label for the per-prompt-composer callback the parent expects.
-      const item = localItems.find((i) => i.id === itemId);
       if (item) onItemMessage(item.label, text);
     } else {
       onSendMessage(text);

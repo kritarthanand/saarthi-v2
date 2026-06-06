@@ -130,13 +130,13 @@ export function ThreadDetail({
   }, [thread.id]);
 
   const handleRitualToggle = async (itemId: string, done: boolean) => {
-    // Optimistic local mutation, then fire the parent's API call. Wait for the
-    // PATCH to land before refetching — otherwise the refetch can race the
-    // PATCH and return stale (pre-toggle) data, which would flip our optimistic
-    // checkbox back to unchecked.
+    console.log('[toggle] fire', { itemId, done });
     setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done } : i)));
     try {
       await onToggleItem(itemId, done);
+      console.log('[toggle] PATCH resolved', { itemId, done });
+    } catch (e) {
+      console.error('[toggle] PATCH failed', { itemId, done, e });
     } finally {
       refetchActiveEntry();
     }

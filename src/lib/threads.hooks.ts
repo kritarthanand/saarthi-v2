@@ -333,3 +333,20 @@ export function useCloseEntry(): (entryId: string) => Promise<Entry> {
     return toEntry(w);
   }, []);
 }
+
+/**
+ * Shallow-merge `metaPatch` into the entry's meta. Pass `null` for a key to
+ * unset it. Returns the updated entry.
+ */
+export function usePatchEntryMeta(): (
+  entryId: string,
+  metaPatch: Record<string, unknown>,
+) => Promise<Entry> {
+  return useCallback(async (entryId, metaPatch) => {
+    const w = await apiFetch<WireEntry>(`/entries/${entryId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ meta: metaPatch }),
+    });
+    return toEntry(w);
+  }, []);
+}

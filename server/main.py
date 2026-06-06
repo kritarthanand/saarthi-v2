@@ -114,6 +114,11 @@ class PatchItemBody(BaseModel):
     meta: dict[str, Any] | None = None
 
 
+class PatchEntryBody(BaseModel):
+    # Shallow-merge into the existing meta. None means "unset that key".
+    meta: dict[str, Any] | None = None
+
+
 class CreateMessageBody(BaseModel):
     role: str
     text: str
@@ -747,6 +752,36 @@ def close_entry(entry_id: str):
     if thread_row and thread_row["template"] == "morning_ritual":
         _forward_morning_top3(db, entry_id, user_id)
 
+    return _row_to_entry(rows[0])
+
+
+@app.patch("/entries/{entry_id}", response_model=EntryOut)
+def patch_entry(entry_id: str, body: PatchEntryBody):
+    """Shallow-merge a meta patch into the entry. Keys with value `None` are deleted."""
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    existing = _assert_entry_owner(db, entry_id, user_id)
+
+    if body.meta is None:
+        return _row_to_entry(existing)
+
+    merged = {**(existing.get("meta") or {})}
+    for k, v in body.meta.items():
+        if v is None:
+            merged.pop(k, None)
+        else:
+            merged[k] = v
+
+    rows = (
+        db.table("v2_thread_entries")
+        .update({"meta": merged})
+        .eq("id", entry_id)
+        .execute()
+        .data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Entry not found")
     return _row_to_entry(rows[0])
 
 

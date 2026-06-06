@@ -5,7 +5,7 @@ import { Colors, threadTheme } from '@/constants/theme';
 import { subtitleFor, type Thread } from '@/lib/mockData';
 import { TAG_TO_TEMPLATE, TEMPLATE_REGISTRY } from '@/lib/threadTemplates';
 import type { Entry, EntryItem, EntryMessage, ThreadTemplate } from '@/lib/threads';
-import { apiFetch, useEntry, useThread } from '@/lib/threads.hooks';
+import { apiFetch, useEntry, usePatchEntryMeta, useThread } from '@/lib/threads.hooks';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
 import { BackIcon, ChevRightIcon, DotsIcon } from '../icons';
@@ -83,6 +83,8 @@ export function ThreadDetail({
   // Detect ritual template by tag
   const template = TAG_TO_TEMPLATE[thread.tag];
 
+  const patchEntryMeta = usePatchEntryMeta();
+
   // Live data for ritual threads — entries from the thread record, items+messages
   // from the active entry. For non-ritual (legacy) threads we don't fetch.
   const { thread: liveThread, entries: liveEntries } = useThread(template != null ? thread.id : '');
@@ -130,13 +132,9 @@ export function ThreadDetail({
   }, [thread.id]);
 
   const handleRitualToggle = async (itemId: string, done: boolean) => {
-    console.log('[toggle] fire', { itemId, done });
     setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done } : i)));
     try {
       await onToggleItem(itemId, done);
-      console.log('[toggle] PATCH resolved', { itemId, done });
-    } catch (e) {
-      console.error('[toggle] PATCH failed', { itemId, done, e });
     } finally {
       refetchActiveEntry();
     }
@@ -246,7 +244,19 @@ export function ThreadDetail({
     setTimeout(() => refetchActiveEntry(), 250);
   }, [activeEntry, onSendMessage, refetchActiveEntry]);
 
-  const handleEndRitual = useCallback(() => {
+  const ritualEndedAt = (activeEntry?.meta?.ritual_ended_at as string | undefined) ?? null;
+
+  const handleEndRitual = useCallback(async () => {
+    if (!activeEntry) return;
+
+    if (ritualEndedAt) {
+      // Undo: clear the flag, stay on the summary tab.
+      await patchEntryMeta(activeEntry.id, { ritual_ended_at: null });
+      refetchActiveEntry();
+      return;
+    }
+
+    // End: stamp the flag, then compose the summary message and jump to chat.
     const top3Item = localItems.find((i) => i.label === 'Top 3 Goals for the day');
     const timeblockItem = localItems.find((i) => i.label === 'Time Block for the day');
     const top3Text = top3Item
@@ -260,9 +270,11 @@ export function ThreadDetail({
     if (top3Text) parts.push(`My top 3 for today:\n${top3Text}`);
     if (timeblockText) parts.push(`Time block:\n${timeblockText}`);
 
+    await patchEntryMeta(activeEntry.id, { ritual_ended_at: new Date().toISOString() });
     onSendMessage(parts.join('\n\n'));
     setTab('chat');
-  }, [localItems, localMessages, onSendMessage, setTab]);
+    refetchActiveEntry();
+  }, [activeEntry, ritualEndedAt, localItems, localMessages, onSendMessage, setTab, patchEntryMeta, refetchActiveEntry]);
 
   const handleLoadOlderEntry = useCallback(() => {
     const notLoaded = liveEntries

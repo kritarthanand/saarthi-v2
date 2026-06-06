@@ -122,17 +122,20 @@ export default function AppRoot() {
   );
 
   const handleSendMessage = useCallback(
-    async (threadId: string, text: string) => {
+    async (threadId: string, text: string, opts?: { throwOnError?: boolean }) => {
       const entryId = activeEntryIdByThread[threadId];
-      if (!entryId) throw new Error('No active entry for this thread');
-      // Let errors propagate — handleEndRitual awaits this and skips the
-      // ritual_ended_at patch if the message fails. Inline log preserves the
-      // previous diagnostic while still re-throwing.
+      // Silent no-op when the active entry hasn't loaded yet — keeps the old
+      // race-friendly behaviour for fire-and-forget callers (Composer, etc.).
+      if (!entryId) return;
       try {
         await sendMessageAsync(entryId, text);
       } catch (e) {
         console.error('sendMessage failed', e);
-        throw e;
+        // Only re-throw for callers who opted in (handleEndRitual needs this
+        // to skip the ritual_ended_at patch on failure). All other callers
+        // stay fire-and-forget and don't get an unhandled rejection.
+        if (opts?.throwOnError) throw e;
+        return;
       }
       refetchAll();
     },
@@ -219,7 +222,7 @@ export default function AppRoot() {
             <ThreadDetail
               thread={openThread}
               onToggleItem={(itemId, done) => toggleItem(itemId, done)}
-              onSendMessage={(text) => handleSendMessage(openThread.id, text)}
+              onSendMessage={(text, opts) => handleSendMessage(openThread.id, text, opts)}
               onItemMessage={(itemLabel, text) => handleItemMessage(openThread.id, itemLabel, text)}
               onClose={() => setOpenThreadId(null)}
               onMic={() => setVoiceOpen(true)}
@@ -304,7 +307,7 @@ export default function AppRoot() {
             key={openThread.id}
             thread={openThread}
             onToggleItem={(itemId, done) => toggleItem(itemId, done)}
-            onSendMessage={(text) => handleSendMessage(openThread.id, text)}
+            onSendMessage={(text, opts) => handleSendMessage(openThread.id, text, opts)}
             onItemMessage={(itemLabel, text) => handleItemMessage(openThread.id, itemLabel, text)}
             embedded
             topInset={20}

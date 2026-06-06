@@ -66,7 +66,7 @@ export function ThreadDetail({
 }: {
   thread: Thread;
   onToggleItem: (itemId: string, done: boolean) => Promise<void> | void;
-  onSendMessage: (text: string) => Promise<void> | void;
+  onSendMessage: (text: string, opts?: { throwOnError?: boolean }) => Promise<void> | void;
   onItemMessage: (itemLabel: string, text: string) => void;
   onClose: () => void;
   onMic: () => void;
@@ -292,8 +292,9 @@ export function ThreadDetail({
     // Send the summary message first; only stamp ritual_ended_at if it succeeds.
     // The reverse order would leave the ritual stuck in ended+locked with no chat
     // summary if the network drops mid-call — forcing the user to hit Undo to recover.
+    // throwOnError makes the awaited promise reject on send failure so we can bail.
     try {
-      await onSendMessage(parts.join('\n\n'));
+      await onSendMessage(parts.join('\n\n'), { throwOnError: true });
     } catch (e) {
       console.error('end-ritual: summary message failed; leaving ritual open', e);
       return;

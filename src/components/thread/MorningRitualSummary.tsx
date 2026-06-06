@@ -1,22 +1,26 @@
-import { Pressable, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { Colors, threadTheme } from '@/constants/theme';
 import type { EntryItem, EntryMessage } from '@/lib/threads';
 import type { SummaryViewProps } from '@/lib/threadTemplates';
 import { Checkbox } from '../Checkbox';
-import { FlameIcon } from '../icons';
+import { FlameIcon, SendIcon } from '../icons';
 
 export function MorningRitualSummary({
   entry,
   items,
   messages,
   onToggle,
+  onSendMessage,
   onSuggestionChoice,
+  onEndRitual,
   readOnly = false,
 }: SummaryViewProps) {
   const theme = threadTheme('#MorningRitual');
   const sorted = [...items].sort((a, b) => a.position - b.position);
+
   const done = sorted.filter((i) => i.done).length;
   const total = sorted.length;
   const pointsEarned = sorted.filter((i) => i.done).reduce((s, i) => s + i.points, 0);
@@ -28,8 +32,8 @@ export function MorningRitualSummary({
     remaining === 0
       ? 'All clear. Streak holds.'
       : remaining === 1
-        ? 'One left — finish it before lunch.'
-        : `${remaining} left — knocking them out before lunch keeps the streak.`;
+        ? 'One left — finish strong.'
+        : `${remaining} left — finish before you leave the house.`;
 
   const r = 32;
   const circumference = 2 * Math.PI * r;
@@ -81,20 +85,43 @@ export function MorningRitualSummary({
               <Text style={{ fontSize: 12, color: Colors.textDim, fontWeight: '500' }}>day {streak} streak</Text>
             </View>
           )}
+          {streak === 0 && remaining > 0 && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+              <FlameIcon size={13} color={Colors.textFaint} />
+              <Text style={{ fontSize: 12, color: Colors.textFaint, fontWeight: '500' }}>start your streak today</Text>
+            </View>
+          )}
         </View>
       </View>
 
-      {/* Checklist */}
+      {/* Checklist + reflection items */}
       <View style={{ gap: 6 }}>
-        {sorted.map((item) => (
-          <MorningChecklistRow
-            key={item.id}
-            item={item}
-            color={theme.color}
-            readOnly={readOnly}
-            onToggle={onToggle && !readOnly ? () => onToggle(item.id, !item.done) : undefined}
-          />
-        ))}
+        {sorted.map((item) => {
+          if (item.meta.type === 'reflection') {
+            // Latest answer wins, so edits supersede earlier attempts.
+            const userMsgsForItem = messages.filter((m) => m.item_ref === item.id && m.role === 'user');
+            const savedText = userMsgsForItem[userMsgsForItem.length - 1]?.text;
+            return (
+              <MorningReflectionRow
+                key={item.id}
+                item={item}
+                color={theme.color}
+                readOnly={readOnly}
+                savedText={savedText}
+                onSend={onSendMessage && !readOnly ? (text) => onSendMessage(text, item.id) : undefined}
+              />
+            );
+          }
+          return (
+            <MorningChecklistRow
+              key={item.id}
+              item={item}
+              color={theme.color}
+              readOnly={readOnly}
+              onToggle={onToggle && !readOnly ? () => onToggle(item.id, !item.done) : undefined}
+            />
+          );
+        })}
       </View>
 
       {/* AI suggestion */}
@@ -106,7 +133,16 @@ export function MorningRitualSummary({
             flexDirection: 'row', gap: 10, alignItems: 'flex-start',
           }}
         >
-          <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.accent, marginTop: 1 }} />
+          <View
+            style={{
+              width: 26, height: 26, borderRadius: 13,
+              backgroundColor: theme.dim,
+              borderColor: theme.color + '50', borderWidth: 1,
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <Text style={{ fontSize: 10, fontWeight: '700', color: theme.color }}>S</Text>
+          </View>
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={{ fontSize: 13.5, color: Colors.text, lineHeight: 18 }}>{suggestion.text}</Text>
             {Array.isArray(suggestion.meta.chip_labels) && (
@@ -129,9 +165,22 @@ export function MorningRitualSummary({
           </View>
         </View>
       )}
+
+      {/* End Morning Ritual / Undo — stays interactive even when readOnly,
+          since Undo is the only way out of the ended-and-locked state. */}
+      {onEndRitual && (
+        <EndRitualButton
+          onPress={onEndRitual}
+          color={theme.color}
+          allDone={remaining === 0}
+          ended={!!entry.meta.ritual_ended_at}
+        />
+      )}
     </View>
   );
 }
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function MorningChecklistRow({
   item,
@@ -144,7 +193,6 @@ function MorningChecklistRow({
   readOnly: boolean;
   onToggle?: () => void;
 }) {
-  const hasChat = item.meta.has_chat === true;
   return (
     <View
       style={{
@@ -165,12 +213,162 @@ function MorningChecklistRow({
       >
         {item.label}
       </Text>
-      {hasChat && !readOnly && (
-        <View style={{ paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, backgroundColor: Colors.accentDim }}>
-          <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.accent }}>chat</Text>
+      <Text style={{ fontSize: 11, fontWeight: '600', color, opacity: item.done ? 0.4 : 1 }}>
+        +{item.points}
+      </Text>
+    </View>
+  );
+}
+
+function MorningReflectionRow({
+  item,
+  color,
+  readOnly,
+  savedText,
+  onSend,
+}: {
+  item: EntryItem;
+  color: string;
+  readOnly: boolean;
+  savedText?: string;
+  onSend?: (text: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [draft, setDraft] = useState('');
+  const isDone = item.done || !!savedText;
+
+  // Pre-fill the input with the current answer when expanding to edit.
+  useEffect(() => {
+    if (expanded) setDraft(savedText ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
+  const submit = () => {
+    const t = draft.trim();
+    if (!t || !onSend) return;
+    onSend(t);
+    setDraft('');
+    setExpanded(false);
+  };
+
+  return (
+    <View
+      style={{
+        backgroundColor: isDone ? 'rgba(255,255,255,0.015)' : Colors.bgCard,
+        borderColor: expanded ? color + '60' : (isDone ? 'transparent' : Colors.border),
+        borderWidth: 1, borderRadius: 14, overflow: 'hidden',
+      }}
+    >
+      <Pressable
+        onPress={() => !readOnly && setExpanded((e) => !e)}
+        style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}
+      >
+        {/* Pencil-style indicator */}
+        <View
+          style={{
+            width: 18, height: 18, borderRadius: 5, marginTop: 2,
+            backgroundColor: isDone ? color : 'transparent',
+            borderColor: isDone ? color : Colors.borderStrong,
+            borderWidth: isDone ? 0 : 1.5,
+          }}
+        />
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text
+            style={{
+              fontSize: 14.5, fontWeight: '500',
+              color: isDone ? Colors.textFaint : Colors.text,
+              textDecorationLine: isDone ? 'line-through' : 'none',
+            }}
+          >
+            {item.label}
+          </Text>
+          {savedText && (
+            <Text style={{ fontSize: 13, color: Colors.textDim, lineHeight: 18 }} numberOfLines={3}>
+              {savedText}
+            </Text>
+          )}
+        </View>
+        <Text style={{ fontSize: 11, fontWeight: '600', color, opacity: isDone ? 0.4 : 1, marginTop: 2 }}>
+          +{item.points}
+        </Text>
+      </Pressable>
+
+      {expanded && (
+        <View
+          style={{
+            borderTopWidth: 1, borderTopColor: Colors.border,
+            padding: 14, gap: 10,
+          }}
+        >
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            multiline
+            placeholder={`${item.label.toLowerCase()}…`}
+            placeholderTextColor={Colors.textFaint}
+            style={{
+              color: Colors.text, fontSize: 13.5, lineHeight: 20,
+              minHeight: 72, textAlignVertical: 'top',
+            }}
+            autoFocus
+          />
+          <Pressable
+            onPress={submit}
+            disabled={!draft.trim()}
+            style={{
+              paddingVertical: 10, borderRadius: 10,
+              backgroundColor: draft.trim() ? color : 'rgba(255,255,255,0.04)',
+              alignItems: 'center',
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 13, fontWeight: '700',
+                color: draft.trim() ? Colors.bg : Colors.textDim,
+              }}
+            >
+              Save
+            </Text>
+          </Pressable>
         </View>
       )}
-      <Text style={{ fontSize: 11, fontWeight: '600', color, opacity: item.done ? 0.5 : 1 }}>+{item.points}</Text>
     </View>
+  );
+}
+
+function EndRitualButton({
+  onPress,
+  color,
+  allDone,
+  ended,
+}: {
+  onPress: () => void;
+  color: string;
+  allDone: boolean;
+  ended: boolean;
+}) {
+  // Three visual states: pre-end (muted), pre-end & all done (full color),
+  // ended (outlined "undo" affordance — clearly different so the user can tell).
+  const filled = ended ? false : allDone;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        marginTop: 4, paddingVertical: 15, borderRadius: 16,
+        backgroundColor: filled ? color : 'rgba(255,255,255,0.04)',
+        borderColor: ended ? color : (filled ? color : Colors.border),
+        borderWidth: ended ? 1.5 : 1,
+        alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <Text
+        style={{
+          fontSize: 15, fontWeight: '700', letterSpacing: 0.2,
+          color: filled ? Colors.bg : (ended ? color : Colors.textDim),
+        }}
+      >
+        {ended ? 'Undo — Reopen Morning Ritual' : 'End Morning Ritual'}
+      </Text>
+    </Pressable>
   );
 }

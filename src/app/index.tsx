@@ -49,7 +49,9 @@ export default function AppRoot() {
   const voiceSessionRef = useRef<VoiceSessionHandle>(null);
 
   // ── Live data from Supabase ────────────────────────────────────────────────
-  const { data: liveThreads, refetch: refetchThreads } = useThreads();
+  // `today: true` makes the server drop any thread without a today-entry —
+  // belt-and-braces against any stale client bundle showing yesterday's rituals.
+  const { data: liveThreads, refetch: refetchThreads } = useThreads({ today: true });
   const { byId: entriesByActiveId, refetch: refetchEntries } = useActiveEntries(liveThreads);
   const refetchAll = useCallback(() => {
     refetchThreads();
@@ -67,6 +69,20 @@ export default function AppRoot() {
       adaptLiveThread(t, t.activeEntryId ? entriesByActiveId[t.activeEntryId] : undefined),
     );
   }, [liveThreads, entriesByActiveId]);
+
+  // Today view only shows threads whose active entry was created today (server
+  // enforces this — it nulls out active_entry_id for stale entries). Filter by
+  // matching thread id, not array index, so it stays correct if `threads` and
+  // `liveThreads` ever diverge in order or length (coach filters, optimistic
+  // updates, etc.).
+  const todayThreadIds = useMemo(
+    () => new Set((liveThreads ?? []).filter((t) => !!t.activeEntryId).map((t) => t.id)),
+    [liveThreads],
+  );
+  const todayThreads = useMemo<Thread[]>(
+    () => threads.filter((t) => todayThreadIds.has(t.id)),
+    [threads, todayThreadIds],
+  );
 
   // Quick lookup: thread.id → activeEntryId, for mutations.
   const activeEntryIdByThread = useMemo(() => {
@@ -90,31 +106,38 @@ export default function AppRoot() {
   }, [liveThreads, mode]);
 
   // ── Mutations: fire API, then refetch authoritative state ──────────────────
+  // Caller passes the desired `done` value explicitly — reading it from the
+  // global `threads` array is racy when the user taps faster than the refetch
+  // round-trip.
   const toggleItem = useCallback(
-    async (threadId: string, itemId: string) => {
-      const thread = threads.find((t) => t.id === threadId);
-      const item = thread?.items.find((i) => i.id === itemId);
-      if (!item) return;
+    async (itemId: string, done: boolean) => {
       try {
-        await toggleItemAsync(itemId, !item.done);
+        await toggleItemAsync(itemId, done);
         refetchAll();
       } catch (e) {
         console.error('toggleItem failed', e);
       }
     },
-    [threads, toggleItemAsync, refetchAll],
+    [toggleItemAsync, refetchAll],
   );
 
   const handleSendMessage = useCallback(
-    async (threadId: string, text: string) => {
+    async (threadId: string, text: string, opts?: { throwOnError?: boolean }) => {
       const entryId = activeEntryIdByThread[threadId];
+      // Silent no-op when the active entry hasn't loaded yet — keeps the old
+      // race-friendly behaviour for fire-and-forget callers (Composer, etc.).
       if (!entryId) return;
       try {
         await sendMessageAsync(entryId, text);
-        refetchAll();
       } catch (e) {
         console.error('sendMessage failed', e);
+        // Only re-throw for callers who opted in (handleEndRitual needs this
+        // to skip the ritual_ended_at patch on failure). All other callers
+        // stay fire-and-forget and don't get an unhandled rejection.
+        if (opts?.throwOnError) throw e;
+        return;
       }
+      refetchAll();
     },
     [activeEntryIdByThread, sendMessageAsync, refetchAll],
   );
@@ -161,7 +184,7 @@ export default function AppRoot() {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
         {tab === 'today' && (
-          <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
+          <TodayView threads={todayThreads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
         )}
         {tab === 'chat' && (
           <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
@@ -198,8 +221,8 @@ export default function AppRoot() {
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Colors.bg }}>
             <ThreadDetail
               thread={openThread}
-              onToggleItem={(itemId) => toggleItem(openThread.id, itemId)}
-              onSendMessage={(text) => handleSendMessage(openThread.id, text)}
+              onToggleItem={(itemId, done) => toggleItem(itemId, done)}
+              onSendMessage={(text, opts) => handleSendMessage(openThread.id, text, opts)}
               onItemMessage={(itemLabel, text) => handleItemMessage(openThread.id, itemLabel, text)}
               onClose={() => setOpenThreadId(null)}
               onMic={() => setVoiceOpen(true)}
@@ -262,7 +285,7 @@ export default function AppRoot() {
           overflow: 'hidden', backgroundColor: Colors.bg,
         }}
       >
-        {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
+        {tab === 'today' && <TodayView threads={todayThreads} onOpenThread={setOpenThreadId} topInset={28} />}
         {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
         {tab === 'coaches' && (
@@ -283,8 +306,8 @@ export default function AppRoot() {
           <ThreadDetail
             key={openThread.id}
             thread={openThread}
-            onToggleItem={(itemId) => toggleItem(openThread.id, itemId)}
-            onSendMessage={(text) => handleSendMessage(openThread.id, text)}
+            onToggleItem={(itemId, done) => toggleItem(itemId, done)}
+            onSendMessage={(text, opts) => handleSendMessage(openThread.id, text, opts)}
             onItemMessage={(itemLabel, text) => handleItemMessage(openThread.id, itemLabel, text)}
             embedded
             topInset={20}

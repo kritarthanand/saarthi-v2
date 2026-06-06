@@ -5,7 +5,7 @@ import { Colors, threadTheme } from '@/constants/theme';
 import { subtitleFor, type Thread } from '@/lib/mockData';
 import { TAG_TO_TEMPLATE, TEMPLATE_REGISTRY } from '@/lib/threadTemplates';
 import type { Entry, EntryItem, EntryMessage, ThreadTemplate } from '@/lib/threads';
-import { apiFetch, useEntry, useThread } from '@/lib/threads.hooks';
+import { apiFetch, useEntry, usePatchEntryMeta, useThread } from '@/lib/threads.hooks';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
 import { BackIcon, ChevRightIcon, DotsIcon } from '../icons';
@@ -65,8 +65,8 @@ export function ThreadDetail({
   embedded = false,
 }: {
   thread: Thread;
-  onToggleItem: (itemId: string) => void;
-  onSendMessage: (text: string) => void;
+  onToggleItem: (itemId: string, done: boolean) => Promise<void> | void;
+  onSendMessage: (text: string, opts?: { throwOnError?: boolean }) => Promise<void> | void;
   onItemMessage: (itemLabel: string, text: string) => void;
   onClose: () => void;
   onMic: () => void;
@@ -83,9 +83,11 @@ export function ThreadDetail({
   // Detect ritual template by tag
   const template = TAG_TO_TEMPLATE[thread.tag];
 
+  const patchEntryMeta = usePatchEntryMeta();
+
   // Live data for ritual threads — entries from the thread record, items+messages
   // from the active entry. For non-ritual (legacy) threads we don't fetch.
-  const { thread: liveThread, entries: liveEntries } = useThread(template != null ? thread.id : '');
+  const { thread: liveThread, entries: liveEntries, refetch: refetchThread } = useThread(template != null ? thread.id : '');
   const activeEntry = useMemo(
     () => liveEntries.find((e) => e.status === 'active') ?? null,
     [liveEntries],
@@ -129,19 +131,26 @@ export function ThreadDetail({
     setSentCount(0);
   }, [thread.id]);
 
-  const handleRitualToggle = (itemId: string, done: boolean) => {
-    // Optimistic local mutation, then fire the parent's API call. Parent
-    // refetches the global thread list; our own useEntry refetches on next
-    // refetchActiveEntry().
+  const handleRitualToggle = async (itemId: string, done: boolean) => {
     setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done } : i)));
-    onToggleItem(itemId);
-    // Re-pull active entry shortly after to reconcile with the server's truth.
-    setTimeout(() => refetchActiveEntry(), 250);
+    try {
+      await onToggleItem(itemId, done);
+    } finally {
+      refetchActiveEntry();
+    }
   };
 
   const handleRitualSend = (text: string, itemId?: string) => {
     if (itemId) {
-      setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done: true } : i)));
+      const item = localItems.find((i) => i.id === itemId);
+      // For reflection / morning_review rows, "done" is implied by having a
+      // user message — flip the local checkbox optimistically. Action rows
+      // own their own checkbox; sending a note must not mark them done.
+      const itemType = item?.meta?.type as string | undefined;
+      const autoDone = itemType !== 'action';
+      if (autoDone) {
+        setLocalItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, done: true } : i)));
+      }
       const msg: EntryMessage = {
         id: `local-${Date.now()}`,
         entry_id: activeEntry?.id ?? '',
@@ -152,8 +161,6 @@ export function ThreadDetail({
         created_at: new Date().toISOString(),
       };
       setLocalMessages((prev) => [...prev, msg]);
-      // Find the item label for the per-prompt-composer callback the parent expects.
-      const item = localItems.find((i) => i.id === itemId);
       if (item) onItemMessage(item.label, text);
     } else {
       onSendMessage(text);
@@ -242,6 +249,60 @@ export function ThreadDetail({
     onSendMessage(text);
     setTimeout(() => refetchActiveEntry(), 250);
   }, [activeEntry, onSendMessage, refetchActiveEntry]);
+
+  const ritualEndedAt = (activeEntry?.meta?.ritual_ended_at as string | undefined) ?? null;
+
+  const handleEndRitual = useCallback(async () => {
+    if (!activeEntry) return;
+
+    if (ritualEndedAt) {
+      // Undo: clear the flag, stay on the summary tab.
+      await patchEntryMeta(activeEntry.id, { ritual_ended_at: null });
+      refetchThread();
+      return;
+    }
+
+    const findUserText = (label: string) => {
+      const item = localItems.find((i) => i.label === label);
+      if (!item) return undefined;
+      // Mirror the server's _forward_morning_top3 + the latestUserMessage helper
+      // in the summaries: most recent answer wins so edits supersede earlier drafts.
+      for (let i = localMessages.length - 1; i >= 0; i--) {
+        const m = localMessages[i]!;
+        if (m.item_ref === item.id && m.role === 'user') return m.text;
+      }
+      return undefined;
+    };
+
+    let parts: string[];
+    if (template === 'evening_ritual') {
+      const reviewText = findUserText('Review top 3 priorities for the day');
+      const planText = findUserText('Plan the next day');
+      parts = ['Evening ritual complete.'];
+      if (reviewText) parts.push(`Today's review:\n${reviewText}`);
+      if (planText) parts.push(`Plan for tomorrow:\n${planText}`);
+    } else {
+      const top3Text = findUserText('Top 3 Goals for the day');
+      const timeblockText = findUserText('Time Block for the day');
+      parts = ['Morning ritual complete.'];
+      if (top3Text) parts.push(`My top 3 for today:\n${top3Text}`);
+      if (timeblockText) parts.push(`Time block:\n${timeblockText}`);
+    }
+
+    // Send the summary message first; only stamp ritual_ended_at if it succeeds.
+    // The reverse order would leave the ritual stuck in ended+locked with no chat
+    // summary if the network drops mid-call — forcing the user to hit Undo to recover.
+    // throwOnError makes the awaited promise reject on send failure so we can bail.
+    try {
+      await onSendMessage(parts.join('\n\n'), { throwOnError: true });
+    } catch (e) {
+      console.error('end-ritual: summary message failed; leaving ritual open', e);
+      return;
+    }
+    await patchEntryMeta(activeEntry.id, { ritual_ended_at: new Date().toISOString() });
+    setTab('chat');
+    refetchThread();
+  }, [activeEntry, ritualEndedAt, template, localItems, localMessages, onSendMessage, setTab, patchEntryMeta, refetchThread]);
 
   const handleLoadOlderEntry = useCallback(() => {
     const notLoaded = liveEntries
@@ -400,9 +461,18 @@ export function ThreadDetail({
                   handleRitualToggle,
                   handleRitualSend,
                   handleSuggestionChoice,
-                  onToggleItem,
+                  // Legacy summaries (non-ritual threads) call with just the id —
+                  // bridge to the new (id, done) shape by looking up current state.
+                  (id: string) => {
+                    const current = thread.items.find((i) => i.id === id);
+                    if (current) onToggleItem(id, !current.done);
+                  },
                   () => setTab('chat'),
                   onItemMessage,
+                  template === 'morning_ritual' || template === 'evening_ritual' ? handleEndRitual : undefined,
+                  template === 'evening_ritual'
+                    ? (activeEntry?.meta?.morning_top3 as string | undefined)
+                    : undefined,
                 )
               : <ThreadChatTab thread={thread} />}
           </ScrollView>
@@ -574,6 +644,8 @@ function renderSummary(
   toggleItem: (id: string) => void,
   openChat: () => void,
   itemMessage: (itemLabel: string, text: string) => void,
+  onEndRitual?: () => void,
+  morningTop3?: string,
 ) {
   // Ritual thread — dispatch via TEMPLATE_REGISTRY
   if (template != null && activeEntry != null) {
@@ -586,6 +658,11 @@ function renderSummary(
         onToggle={onRitualToggle}
         onSendMessage={onRitualSend}
         onSuggestionChoice={onSuggestionChoice}
+        onEndRitual={onEndRitual}
+        morningTop3={morningTop3}
+        // Lock items once the ritual is ended — user must Undo to make edits.
+        // The End/Undo button itself stays interactive (it ignores readOnly).
+        readOnly={!!activeEntry.meta.ritual_ended_at}
       />
     );
   }

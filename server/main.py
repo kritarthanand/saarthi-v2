@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client, Client
 
@@ -30,6 +31,16 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Saarthi V2", version="0.1.0", lifespan=lifespan)
+
+# CORS — Expo web bundler serves on a different origin than the API, and so
+# might external dev tools. Open it up in dev; tighten when real auth lands.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── Supabase client ───────────────────────────────────────────────────────────
 

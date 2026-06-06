@@ -256,25 +256,33 @@ export function ThreadDetail({
       return;
     }
 
-    // End: stamp the flag, then compose the summary message and jump to chat.
-    const top3Item = localItems.find((i) => i.label === 'Top 3 Goals for the day');
-    const timeblockItem = localItems.find((i) => i.label === 'Time Block for the day');
-    const top3Text = top3Item
-      ? localMessages.find((m) => m.item_ref === top3Item.id && m.role === 'user')?.text
-      : undefined;
-    const timeblockText = timeblockItem
-      ? localMessages.find((m) => m.item_ref === timeblockItem.id && m.role === 'user')?.text
-      : undefined;
+    const findUserText = (label: string) => {
+      const item = localItems.find((i) => i.label === label);
+      return item
+        ? localMessages.find((m) => m.item_ref === item.id && m.role === 'user')?.text
+        : undefined;
+    };
 
-    const parts: string[] = ['Morning ritual complete.'];
-    if (top3Text) parts.push(`My top 3 for today:\n${top3Text}`);
-    if (timeblockText) parts.push(`Time block:\n${timeblockText}`);
+    let parts: string[];
+    if (template === 'evening_ritual') {
+      const reviewText = findUserText('Review top 3 priorities for the day');
+      const planText = findUserText('Plan the next day');
+      parts = ['Evening ritual complete.'];
+      if (reviewText) parts.push(`Today's review:\n${reviewText}`);
+      if (planText) parts.push(`Plan for tomorrow:\n${planText}`);
+    } else {
+      const top3Text = findUserText('Top 3 Goals for the day');
+      const timeblockText = findUserText('Time Block for the day');
+      parts = ['Morning ritual complete.'];
+      if (top3Text) parts.push(`My top 3 for today:\n${top3Text}`);
+      if (timeblockText) parts.push(`Time block:\n${timeblockText}`);
+    }
 
     await patchEntryMeta(activeEntry.id, { ritual_ended_at: new Date().toISOString() });
     onSendMessage(parts.join('\n\n'));
     setTab('chat');
     refetchThread();
-  }, [activeEntry, ritualEndedAt, localItems, localMessages, onSendMessage, setTab, patchEntryMeta, refetchThread]);
+  }, [activeEntry, ritualEndedAt, template, localItems, localMessages, onSendMessage, setTab, patchEntryMeta, refetchThread]);
 
   const handleLoadOlderEntry = useCallback(() => {
     const notLoaded = liveEntries
@@ -441,7 +449,7 @@ export function ThreadDetail({
                   },
                   () => setTab('chat'),
                   onItemMessage,
-                  template === 'morning_ritual' ? handleEndRitual : undefined,
+                  template === 'morning_ritual' || template === 'evening_ritual' ? handleEndRitual : undefined,
                   template === 'evening_ritual'
                     ? (activeEntry?.meta?.morning_top3 as string | undefined)
                     : undefined,

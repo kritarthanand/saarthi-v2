@@ -51,7 +51,9 @@ export function Composer({
         paddingBottom: kbHeight > 0 ? kbHeight + 8 : paddingBottom,
         paddingTop: 12,
         paddingHorizontal: 14,
-        backgroundColor: 'transparent',
+        backgroundColor: Colors.bg,
+        borderTopWidth: 1,
+        borderTopColor: Colors.border,
       }}
     >
       {hashtag && (

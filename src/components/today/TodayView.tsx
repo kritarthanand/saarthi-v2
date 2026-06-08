@@ -1,7 +1,7 @@
 import { ScrollView, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
-import type { Thread } from '@/lib/mockData';
+import type { Thread } from '@/lib/threads';
 import { AppHeader } from '../AppHeader';
 import { ScoreHeader } from './ScoreHeader';
 import { ThreadCard } from './ThreadCard';
@@ -17,8 +17,6 @@ export function TodayView({
   topInset?: number;
   rightLabel?: string;
 }) {
-  // Default to the wall-clock day so the chrome doesn't read "Wed, Apr 29" forever.
-  // Callers can still override (e.g. when reviewing a historical day).
   const dayLabel =
     rightLabel ??
     new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });

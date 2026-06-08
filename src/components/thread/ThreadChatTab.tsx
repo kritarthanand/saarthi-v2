@@ -1,12 +1,20 @@
 import { Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { THREAD_CHATS, type Thread } from '@/lib/mockData';
+import type { Thread, ThreadMessage } from '@/lib/threads';
 
-export function ThreadChatTab({ thread }: { thread: Thread }) {
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+export function ThreadChatTab({
+  thread,
+  messages,
+}: {
+  thread: Thread;
+  messages: ThreadMessage[];
+}) {
   const theme = threadTheme(thread.tag);
-  const base = thread.kind === 'note' ? thread.messages || [] : THREAD_CHATS[thread.id] || [];
-  const messages = [...base, ...(thread.appendedMessages || [])];
   const tagName = thread.tag.replace('#', '');
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 24, gap: 14 }}>
@@ -21,20 +29,19 @@ export function ThreadChatTab({ thread }: { thread: Thread }) {
           {tagName} session
         </Text>
       </View>
-      {messages.map((m, i) => {
-        // Defensive fallback — every push now stamps `time`, but legacy mock data and
-        // future Supabase rows may lack it; render an em-dash rather than literal `undefined`.
-        const timeLabel = m.time ?? '—';
-        return m.from === 'ai' ? (
-          <View key={i} style={{ alignItems: 'flex-start', maxWidth: '88%', gap: 4 }}>
-            <Text style={{ fontSize: 14.5, color: Colors.text, lineHeight: 20 }}>{m.text}</Text>
+      {messages.map((m) => {
+        const timeLabel = fmtTime(m.created_at);
+        const metaTag = typeof m.meta?.tag === 'string' ? m.meta.tag : tagName.toLowerCase();
+        return m.role === 'ai' ? (
+          <View key={m.id} style={{ alignItems: 'flex-start', maxWidth: '88%', gap: 4 }}>
+            <Text style={{ fontSize: 14.5, color: Colors.text, lineHeight: 20 }}>{m.content}</Text>
             <Text style={{ fontSize: 10.5, color: Colors.textFaint, fontWeight: '500' }}>
-              {m.meta || tagName.toLowerCase()} · {timeLabel}
+              {metaTag} · {timeLabel}
             </Text>
           </View>
         ) : (
-          <View key={i} style={{ alignSelf: 'flex-end', maxWidth: '78%', gap: 4, alignItems: 'flex-end' }}>
-            {m.itemRef && (
+          <View key={m.id} style={{ alignSelf: 'flex-end', maxWidth: '78%', gap: 4, alignItems: 'flex-end' }}>
+            {m.task_ref && (
               <View
                 style={{
                   paddingVertical: 2, paddingHorizontal: 8,
@@ -50,7 +57,7 @@ export function ThreadChatTab({ thread }: { thread: Thread }) {
                     letterSpacing: 0.2,
                   }}
                 >
-                  re: {m.itemRef}
+                  re: {m.task_ref}
                 </Text>
               </View>
             )}
@@ -62,7 +69,7 @@ export function ThreadChatTab({ thread }: { thread: Thread }) {
                 gap: 2, alignItems: 'flex-end',
               }}
             >
-              <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '500' }}>{m.text}</Text>
+              <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '500' }}>{m.content}</Text>
               <Text style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.7)', fontWeight: '500' }}>{timeLabel}</Text>
             </View>
           </View>

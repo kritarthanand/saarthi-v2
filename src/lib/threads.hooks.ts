@@ -1,49 +1,50 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getProxyUrl } from './config';
-import type { Thread, Entry, EntryItem, EntryMessage, CoachId } from './threads';
+import type { Task, TaskStatus, Thread, ThreadMessage } from './threads';
 
 // ── Wire types (snake_case from FastAPI) ──────────────────────────────────────
 
 type WireThread = {
   id: string;
+  user_id: string;
   template: string;
   coach_id: string;
   tag: string;
-  title: string;
-  active_entry_id: string | null;
-  last_entry_at: string | null;
-};
-
-type WireEntry = {
-  id: string;
-  thread_id: string;
-  status: string;
-  label: string | null;
+  title: string | null;
+  period_key: string | null;
+  archived_at: string | null;
   meta: Record<string, unknown>;
   created_at: string;
-  closed_at: string | null;
+  task_count: number;
+  done_count: number;
+  points_earned: number;
+  points_total: number;
 };
 
-type WireItem = {
+type WireTask = {
   id: string;
-  entry_id: string;
-  section: string | null;
-  label: string;
-  done: boolean;
+  thread_id: string;
+  user_id: string;
+  title: string;
+  status: string;
+  priority: string;
   points: number;
+  section: string | null;
+  scheduled_for: string | null;
+  due_at: string | null;
   position: number;
-  priority: string | null;
-  scheduled: string | null;
   meta: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 };
 
 type WireMessage = {
   id: string;
-  entry_id: string;
+  thread_id: string;
   role: string;
-  text: string;
-  item_ref: string | null;
+  content: string;
+  task_ref: string | null;
   meta: Record<string, unknown>;
   created_at: string;
 };
@@ -53,50 +54,48 @@ type WireMessage = {
 function toThread(w: WireThread): Thread {
   return {
     id: w.id,
-    template: w.template as Thread['template'],
-    coach_id: w.coach_id as CoachId,
+    user_id: w.user_id,
+    template: w.template,
+    coach_id: w.coach_id as Thread['coach_id'],
     tag: w.tag,
-    title: w.title,
-    activeEntryId: w.active_entry_id,
-    lastEntryAt: w.last_entry_at,
+    title: w.title ?? '',
+    period_key: w.period_key,
+    archived_at: w.archived_at,
+    meta: w.meta,
+    created_at: w.created_at,
+    task_count: w.task_count,
+    done_count: w.done_count,
+    points_earned: w.points_earned,
+    points_total: w.points_total,
   };
 }
 
-function toEntry(w: WireEntry): Entry {
+function toTask(w: WireTask): Task {
   return {
     id: w.id,
     thread_id: w.thread_id,
-    status: w.status as Entry['status'],
-    label: w.label,
-    meta: w.meta,
-    created_at: w.created_at,
-    closed_at: w.closed_at,
-  };
-}
-
-function toItem(w: WireItem): EntryItem {
-  const item: EntryItem = {
-    id: w.id,
-    entry_id: w.entry_id,
-    section: w.section,
-    label: w.label,
-    done: w.done,
+    user_id: w.user_id,
+    title: w.title,
+    status: w.status as Task['status'],
+    priority: w.priority as Task['priority'],
     points: w.points,
+    section: w.section,
+    scheduled_for: w.scheduled_for,
+    due_at: w.due_at,
     position: w.position,
     meta: w.meta,
+    created_at: w.created_at,
+    updated_at: w.updated_at,
   };
-  if (w.priority) item.priority = w.priority as EntryItem['priority'];
-  if (w.scheduled) item.scheduled = w.scheduled;
-  return item;
 }
 
-function toMessage(w: WireMessage): EntryMessage {
+function toMessage(w: WireMessage): ThreadMessage {
   return {
     id: w.id,
-    entry_id: w.entry_id,
-    role: w.role as EntryMessage['role'],
-    text: w.text,
-    item_ref: w.item_ref,
+    thread_id: w.thread_id,
+    role: w.role as ThreadMessage['role'],
+    content: w.content,
+    task_ref: w.task_ref,
     meta: w.meta,
     created_at: w.created_at,
   };
@@ -112,8 +111,8 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const detail = body?.detail;
-    const msg = typeof detail === 'string' ? detail : (detail?.error ?? `HTTP ${res.status}`);
+    const detail = (body as { detail?: unknown })?.detail;
+    const msg = typeof detail === 'string' ? detail : (typeof detail === 'object' && detail !== null && 'error' in detail ? String((detail as { error: unknown }).error) : `HTTP ${res.status}`);
     throw Object.assign(new Error(msg), { status: res.status, body, detail });
   }
   return res.json() as Promise<T>;
@@ -121,88 +120,63 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
 
 // ── Query hooks ───────────────────────────────────────────────────────────────
 
-export function useThreads(filter?: { coachId?: CoachId; today?: boolean }): {
-  data: Thread[] | null;
+export function useThreads(filter?: { template?: string; today?: boolean }): {
+  threads: Thread[];
   loading: boolean;
   error: Error | null;
-  refetch: () => void;
+  refresh(): void;
 } {
-  const [data, setData] = useState<Thread[] | null>(null);
+  const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const rev = useRef(0);
 
-  const fetch = useCallback(() => {
+  const load = useCallback(() => {
     const tick = ++rev.current;
     setLoading(true);
     setError(null);
     const params = new URLSearchParams();
-    if (filter?.coachId) params.set('coach_id', filter.coachId);
-    if (filter?.today) params.set('today', '1');
-    const qs = params.toString();
-    apiFetch<WireThread[]>(`/threads${qs ? `?${qs}` : ''}`)
-      .then((rows) => { if (rev.current === tick) { setData(rows.map(toThread)); setLoading(false); } })
-      .catch((e) => { if (rev.current === tick) { setError(e); setLoading(false); } });
-  }, [filter?.coachId, filter?.today]);  // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => { fetch(); }, [fetch]);
-
-  return { data, loading, error, refetch: fetch };
-}
-
-export function useThread(threadId: string): {
-  thread: Thread | null;
-  entries: Entry[];
-  loading: boolean;
-  error: Error | null;
-  refetch: () => void;
-} {
-  const [thread, setThread] = useState<Thread | null>(null);
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const rev = useRef(0);
-
-  const fetch = useCallback(() => {
-    const tick = ++rev.current;
-    setLoading(true);
-    setError(null);
-    apiFetch<{ thread: WireThread; entries: WireEntry[] }>(`/threads/${threadId}`)
-      .then(({ thread: t, entries: es }) => {
+    if (filter?.template) params.set('template', filter.template);
+    if (filter?.today) params.set('today', 'true');
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    apiFetch<WireThread[]>(`/threads${qs}`)
+      .then((rows) => {
         if (rev.current !== tick) return;
-        setThread(toThread(t));
-        setEntries(es.map(toEntry));
+        setThreads(rows.map(toThread));
         setLoading(false);
       })
-      .catch((e) => { if (rev.current === tick) { setError(e); setLoading(false); } });
-  }, [threadId]);
+      .catch((e: Error) => {
+        if (rev.current !== tick) return;
+        setError(e);
+        setLoading(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter?.template, filter?.today]);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { load(); }, [load]);
 
-  return { thread, entries, loading, error, refetch: fetch };
+  return { threads, loading, error, refresh: load };
 }
 
-export function useEntry(entryId: string): {
-  entry: Entry | null;
-  items: EntryItem[];
-  messages: EntryMessage[];
+export function useThread(threadId: string | null): {
+  thread: Thread | null;
+  tasks: Task[];
+  messages: ThreadMessage[];
   loading: boolean;
   error: Error | null;
-  refetch: () => void;
+  refresh(): void;
 } {
-  const [entry, setEntry] = useState<Entry | null>(null);
-  const [items, setItems] = useState<EntryItem[]>([]);
-  const [messages, setMessages] = useState<EntryMessage[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [thread, setThread] = useState<Thread | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [messages, setMessages] = useState<ThreadMessage[]>([]);
+  const [loading, setLoading] = useState(threadId != null);
   const [error, setError] = useState<Error | null>(null);
   const rev = useRef(0);
 
-  const fetch = useCallback(() => {
-    if (!entryId) {
-      // No active entry yet — clear stale state and bail. Avoids 404s during
-      // the brief window between thread-list-load and entry-load.
-      setEntry(null);
-      setItems([]);
+  const load = useCallback(() => {
+    if (!threadId) {
+      setThread(null);
+      setTasks([]);
       setMessages([]);
       setLoading(false);
       setError(null);
@@ -211,145 +185,186 @@ export function useEntry(entryId: string): {
     const tick = ++rev.current;
     setLoading(true);
     setError(null);
-    apiFetch<{ entry: WireEntry; items: WireItem[]; messages: WireMessage[] }>(`/entries/${entryId}`)
-      .then(({ entry: e, items: is, messages: ms }) => {
+    apiFetch<{ thread: WireThread; tasks: WireTask[]; messages: WireMessage[] }>(`/threads/${threadId}`)
+      .then((data) => {
         if (rev.current !== tick) return;
-        setEntry(toEntry(e));
-        setItems(is.map(toItem));
-        setMessages(ms.map(toMessage));
+        setThread(toThread(data.thread));
+        setTasks(data.tasks.map(toTask));
+        setMessages(data.messages.map(toMessage));
         setLoading(false);
       })
-      .catch((e) => { if (rev.current === tick) { setError(e); setLoading(false); } });
-  }, [entryId]);
+      .catch((e: Error) => {
+        if (rev.current !== tick) return;
+        setError(e);
+        setLoading(false);
+      });
+  }, [threadId]);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { load(); }, [load]);
 
-  return { entry, items, messages, loading, error, refetch: fetch };
+  return { thread, tasks, messages, loading, error, refresh: load };
 }
 
-/**
- * Loads the active entry (with items + messages) for each thread in `threads`,
- * in parallel. Returns a map keyed by entry id. Re-fetches when the active-entry
- * id of any thread changes — call `refetch()` after a mutation to refresh.
- */
-export function useActiveEntries(threads: Thread[] | null): {
-  byId: Record<string, { entry: Entry; items: EntryItem[]; messages: EntryMessage[] }>;
+export function useTasks(threadId: string | null): {
+  tasks: Task[];
   loading: boolean;
   error: Error | null;
-  refetch: () => void;
+  refresh(): void;
 } {
-  const [byId, setById] = useState<Record<string, { entry: Entry; items: EntryItem[]; messages: EntryMessage[] }>>({});
-  const [loading, setLoading] = useState(false);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(threadId != null);
   const [error, setError] = useState<Error | null>(null);
   const rev = useRef(0);
 
-  // Stable key so we re-fetch on activeEntryId churn, not on every threads-array identity change.
-  const activeIdsKey = (threads ?? [])
-    .map((t) => t.activeEntryId ?? '')
-    .join(',');
-
-  const fetch = useCallback(() => {
-    if (!threads) return;
-    const ids = threads.map((t) => t.activeEntryId).filter((x): x is string => !!x);
-    if (ids.length === 0) {
-      setById({});
+  const load = useCallback(() => {
+    if (!threadId) {
+      setTasks([]);
+      setLoading(false);
+      setError(null);
       return;
     }
     const tick = ++rev.current;
     setLoading(true);
     setError(null);
-    Promise.all(
-      ids.map((id) =>
-        apiFetch<{ entry: WireEntry; items: WireItem[]; messages: WireMessage[] }>(`/entries/${id}`),
-      ),
-    )
-      .then((bundles) => {
+    apiFetch<WireTask[]>(`/threads/${threadId}/tasks`)
+      .then((rows) => {
         if (rev.current !== tick) return;
-        const map: Record<string, { entry: Entry; items: EntryItem[]; messages: EntryMessage[] }> = {};
-        bundles.forEach((b, i) => {
-          map[ids[i]] = {
-            entry: toEntry(b.entry),
-            items: b.items.map(toItem),
-            messages: b.messages.map(toMessage),
-          };
-        });
-        setById(map);
+        setTasks(rows.map(toTask));
         setLoading(false);
       })
-      .catch((e) => {
+      .catch((e: Error) => {
         if (rev.current !== tick) return;
         setError(e);
         setLoading(false);
       });
-  }, [activeIdsKey]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [threadId]);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { load(); }, [load]);
 
-  return { byId, loading, error, refetch: fetch };
+  return { tasks, loading, error, refresh: load };
+}
+
+export function useMessages(threadId: string | null): {
+  messages: ThreadMessage[];
+  loading: boolean;
+  error: Error | null;
+  refresh(): void;
+} {
+  const [messages, setMessages] = useState<ThreadMessage[]>([]);
+  const [loading, setLoading] = useState(threadId != null);
+  const [error, setError] = useState<Error | null>(null);
+  const rev = useRef(0);
+
+  const load = useCallback(() => {
+    if (!threadId) {
+      setMessages([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    const tick = ++rev.current;
+    setLoading(true);
+    setError(null);
+    apiFetch<WireMessage[]>(`/threads/${threadId}/messages`)
+      .then((rows) => {
+        if (rev.current !== tick) return;
+        setMessages(rows.map(toMessage));
+        setLoading(false);
+      })
+      .catch((e: Error) => {
+        if (rev.current !== tick) return;
+        setError(e);
+        setLoading(false);
+      });
+  }, [threadId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return { messages, loading, error, refresh: load };
 }
 
 // ── Mutation hooks ────────────────────────────────────────────────────────────
 
-export function useToggleItem(): (itemId: string, done: boolean) => Promise<void> {
-  return useCallback(async (itemId: string, done: boolean) => {
-    await apiFetch<WireItem>(`/entry_items/${itemId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ done }),
+export function useCreateTask(): (
+  threadId: string,
+  body: {
+    title: string;
+    priority?: string;
+    points?: number;
+    section?: string;
+    position?: number;
+    meta?: Record<string, unknown>;
+  },
+) => Promise<Task> {
+  return useCallback(async (threadId, body) => {
+    const w = await apiFetch<WireTask>(`/threads/${threadId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
+    return toTask(w);
+  }, []);
+}
+
+export function usePatchTask(): (
+  taskId: string,
+  patch: {
+    title?: string;
+    status?: string;
+    priority?: string;
+    points?: number;
+    section?: string;
+    scheduled_for?: string;
+    due_at?: string;
+    position?: number;
+    meta?: Record<string, unknown>;
+  },
+) => Promise<Task> {
+  return useCallback(async (taskId, patch) => {
+    const w = await apiFetch<WireTask>(`/tasks/${taskId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    return toTask(w);
+  }, []);
+}
+
+export function useDropTask(): (taskId: string) => Promise<Task> {
+  return useCallback(async (taskId) => {
+    const w = await apiFetch<WireTask>(`/tasks/${taskId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'dropped' }),
+    });
+    return toTask(w);
   }, []);
 }
 
 export function useSendMessage(): (
-  entryId: string,
-  text: string,
-  itemRef?: string,
-) => Promise<EntryMessage> {
-  return useCallback(async (entryId, text, itemRef) => {
-    const w = await apiFetch<WireMessage>(`/entries/${entryId}/messages`, {
+  threadId: string,
+  content: string,
+  taskRef?: string,
+  role?: string,
+) => Promise<ThreadMessage> {
+  return useCallback(async (threadId, content, taskRef, role = 'user') => {
+    const w = await apiFetch<WireMessage>(`/threads/${threadId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ role: 'user', text, item_ref: itemRef ?? null }),
+      body: JSON.stringify({ role, content, task_ref: taskRef ?? null }),
     });
     return toMessage(w);
   }, []);
 }
 
-export function useOpenEntry(): (
-  threadId: string,
-  seed?: { label?: string; items?: Record<string, unknown>[]; messages?: Record<string, unknown>[] },
-) => Promise<Entry> {
-  return useCallback(async (threadId, seed) => {
-    const w = await apiFetch<WireEntry>(`/threads/${threadId}/entries`, {
-      method: 'POST',
-      body: JSON.stringify({
-        label: seed?.label ?? null,
-        items: seed?.items ?? [],
-        messages: seed?.messages ?? [],
-      }),
-    });
-    return toEntry(w);
-  }, []);
-}
-
-export function useCloseEntry(): (entryId: string) => Promise<Entry> {
-  return useCallback(async (entryId) => {
-    const w = await apiFetch<WireEntry>(`/entries/${entryId}/close`, { method: 'PATCH' });
-    return toEntry(w);
-  }, []);
-}
-
-/**
- * Shallow-merge `metaPatch` into the entry's meta. Pass `null` for a key to
- * unset it. Returns the updated entry.
- */
-export function usePatchEntryMeta(): (
-  entryId: string,
-  metaPatch: Record<string, unknown>,
-) => Promise<Entry> {
-  return useCallback(async (entryId, metaPatch) => {
-    const w = await apiFetch<WireEntry>(`/entries/${entryId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ meta: metaPatch }),
-    });
-    return toEntry(w);
+export function useUpsertOccurrence(): (
+  template: string,
+  periodKey: string,
+) => Promise<{ thread: Thread; created: boolean }> {
+  return useCallback(async (template, periodKey) => {
+    const result = await apiFetch<{ thread: WireThread; created: boolean }>(
+      `/threads/occurrence`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ template, period_key: periodKey }),
+      },
+    );
+    return { thread: toThread(result.thread), created: result.created };
   }, []);
 }

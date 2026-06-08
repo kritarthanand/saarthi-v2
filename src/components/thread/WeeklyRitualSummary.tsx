@@ -2,27 +2,27 @@ import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import type { EntryItem } from '@/lib/threads';
+import type { Task } from '@/lib/threads';
 import type { SummaryViewProps } from '@/lib/threadTemplates';
 import { Checkbox } from '../Checkbox';
 
 type WeeklyTab = 'review' | 'plan';
 
 export function WeeklyRitualSummary({
-  entry,
-  items,
-  onToggle,
+  thread,
+  tasks,
+  onToggleTask,
   readOnly = false,
 }: SummaryViewProps) {
   const theme = threadTheme('#WeeklyRitual');
   const [subTab, setSubTab] = useState<WeeklyTab>('review');
 
-  const reviewItems = items.filter((i) => i.section === 'review').sort((a, b) => a.position - b.position);
-  const planItems = items.filter((i) => i.section === 'plan').sort((a, b) => a.position - b.position);
+  const reviewTasks = tasks.filter((t) => t.section === 'review').sort((a, b) => a.position - b.position);
+  const planTasks = tasks.filter((t) => t.section === 'plan').sort((a, b) => a.position - b.position);
 
-  const completionPct = entry.meta.completion_pct as number | undefined;
-  const pointsTotal = entry.meta.points_total as number | undefined;
-  const streak = entry.meta.streak as number | undefined;
+  const completionPct = thread.meta.completion_pct as number | undefined;
+  const pointsTotal = thread.meta.points_total as number | undefined;
+  const streak = thread.meta.streak as number | undefined;
 
   return (
     <View style={{ paddingHorizontal: 16, paddingVertical: 4, paddingBottom: 24, gap: 14 }}>
@@ -35,7 +35,7 @@ export function WeeklyRitualSummary({
         }}
       >
         <Text style={{ fontSize: 18, fontWeight: '700', color: Colors.text, letterSpacing: -0.3 }}>
-          {entry.label ?? 'This week'}
+          {thread.title ?? 'This week'}
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {completionPct != null && <StatChip label={`${completionPct}% done`} color={theme.color} />}
@@ -79,15 +79,19 @@ export function WeeklyRitualSummary({
         })}
       </View>
 
-      {/* Items */}
+      {/* Tasks */}
       <View style={{ gap: 6 }}>
-        {(subTab === 'review' ? reviewItems : planItems).map((item) => (
-          <WeeklyItemRow
-            key={item.id}
-            item={item}
+        {(subTab === 'review' ? reviewTasks : planTasks).map((task) => (
+          <WeeklyTaskRow
+            key={task.id}
+            task={task}
             color={theme.color}
             readOnly={readOnly}
-            onToggle={onToggle && !readOnly ? () => onToggle(item.id, !item.done) : undefined}
+            onToggle={
+              onToggleTask && !readOnly
+                ? () => onToggleTask(task.id, task.status === 'done' ? 'open' : 'done')
+                : undefined
+            }
           />
         ))}
       </View>
@@ -109,20 +113,21 @@ function StatChip({ label, color }: { label: string; color: string }) {
   );
 }
 
-function WeeklyItemRow({
-  item,
+function WeeklyTaskRow({
+  task,
   color,
   readOnly,
   onToggle,
 }: {
-  item: EntryItem;
+  task: Task;
   color: string;
   readOnly: boolean;
   onToggle?: () => void;
 }) {
+  const isDone = task.status === 'done';
   const priorityColor =
-    item.priority === 'high' ? color :
-    item.priority === 'med' ? color + '88' :
+    task.priority === 'high' ? color :
+    task.priority === 'med' ? color + '88' :
     Colors.textFaint;
 
   return (
@@ -130,22 +135,22 @@ function WeeklyItemRow({
       style={{
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingVertical: 12, paddingHorizontal: 14,
-        backgroundColor: item.done ? 'rgba(255,255,255,0.015)' : Colors.bgCard,
-        borderColor: item.done ? 'transparent' : Colors.border,
+        backgroundColor: isDone ? 'rgba(255,255,255,0.015)' : Colors.bgCard,
+        borderColor: isDone ? 'transparent' : Colors.border,
         borderWidth: 1, borderRadius: 14,
       }}
     >
-      <Checkbox checked={item.done} color={color} onPress={onToggle} />
+      <Checkbox checked={isDone} color={color} onPress={onToggle} />
       <Text
         style={{
           flex: 1, fontSize: 14.5, fontWeight: '500',
-          color: item.done ? Colors.textFaint : Colors.text,
-          textDecorationLine: item.done ? 'line-through' : 'none',
+          color: isDone ? Colors.textFaint : Colors.text,
+          textDecorationLine: isDone ? 'line-through' : 'none',
         }}
       >
-        {item.label}
+        {task.title}
       </Text>
-      {item.priority && !readOnly && (
+      {task.priority && !readOnly && (
         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: priorityColor }} />
       )}
     </View>

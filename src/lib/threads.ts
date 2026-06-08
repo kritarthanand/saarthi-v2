@@ -1,59 +1,61 @@
-// String union keeps the runtime value identical to what Supabase stores/returns,
-// avoiding the enum impedance mismatch. The companion const gives the same
-// call-site ergonomics: ThreadTemplate.MorningRitual === 'morning_ritual'.
-export type ThreadTemplate =
-  | 'morning_ritual'
-  | 'evening_ritual'
-  | 'weekly_ritual';
-
-export const ThreadTemplate = {
-  MorningRitual: 'morning_ritual',
-  EveningRitual: 'evening_ritual',
-  WeeklyRitual:  'weekly_ritual',
-} as const satisfies Record<string, ThreadTemplate>;
+// Thread-as-occurrence model.
+// Template is now an open string — no DB enum, code-registry only.
+// Entry / EntryItem / EntryMessage types removed; replaced by Task / ThreadMessage.
 
 export type CoachId = 'nakula' | 'bheem' | 'arjun' | 'yudi' | 'sahdev';
 
+export type ThreadTemplate =
+  | 'morning_ritual'
+  | 'evening_ritual'
+  | 'weekly_ritual'
+  | 'freeform';
+
 export type Thread = {
   id: string;
-  template: ThreadTemplate;
+  user_id: string;
+  template: string;
   coach_id: CoachId;
   tag: string;
   title: string;
-  activeEntryId: string | null;
-  lastEntryAt: string | null;
-};
-
-export type Entry = {
-  id: string;
-  thread_id: string;
-  status: 'active' | 'closed';
-  label: string | null;
+  period_key: string | null;
+  archived_at: string | null;
   meta: Record<string, unknown>;
   created_at: string;
-  closed_at: string | null;
+  // Computed by server
+  task_count: number;
+  done_count: number;
+  points_earned: number;
+  points_total: number;
 };
 
-// Used by the upcoming checklist-items layer (Workstream A integration).
-export type EntryItem = {
+export type TaskStatus = 'open' | 'in_progress' | 'done' | 'dropped';
+export type TaskPriority = 'high' | 'med' | 'low';
+
+export type Task = {
   id: string;
-  entry_id: string;
-  section: string | null;
-  label: string;
-  done: boolean;
+  thread_id: string;
+  user_id: string;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
   points: number;
+  section: string | null;
+  scheduled_for: string | null; // 'YYYY-MM-DD'
+  due_at: string | null;
   position: number;
-  priority?: 'high' | 'med' | 'low';
-  scheduled?: string;
   meta: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 };
 
-export type EntryMessage = {
+export type MessageRole = 'user' | 'ai' | 'system' | 'tool';
+
+export type ThreadMessage = {
   id: string;
-  entry_id: string;
-  role: 'ai' | 'user';
-  text: string;
-  item_ref: string | null;
+  thread_id: string;
+  role: MessageRole;
+  content: string;
+  task_ref: string | null;
   meta: Record<string, unknown>;
   created_at: string;
 };

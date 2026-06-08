@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from postgrest.exceptions import APIError as PostgRESTAPIError
@@ -21,8 +21,7 @@ _scheduler = BackgroundScheduler(timezone="UTC")
 async def lifespan(_app: FastAPI):
     _sync_reset_schedules()
     # Re-sync once an hour so profile edits (timezone / day_start_hour changes)
-    # take effect without a server restart. Cheap — distinct schedules across N
-    # users is at most ~24 buckets, two SELECTs.
+    # take effect without a server restart.
     _scheduler.add_job(
         _sync_reset_schedules, "cron", minute=15, id="resync_schedules"
     )
@@ -33,8 +32,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Saarthi V2", version="0.1.0", lifespan=lifespan)
 
-# CORS — Expo web bundler serves on a different origin than the API, and so
-# might external dev tools. Open it up in dev; tighten when real auth lands.
+# CORS — open in dev; tighten when real auth lands.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -65,114 +63,166 @@ def get_dev_user_id() -> str:
     return uid
 
 
-# ── Pydantic models (mirror src/lib/threads.ts, snake_case on wire) ───────────
+# ── Pydantic models ───────────────────────────────────────────────────────────
 
 class ThreadOut(BaseModel):
     id: str
+    user_id: str
     template: str
     coach_id: str
     tag: str
-    title: str
-    active_entry_id: str | None
-    last_entry_at: str | None
+    title: str | None
+    period_key: str | None
+    archived_at: str | None
+    meta: dict[str, Any]
+    created_at: str
+    task_count: int = 0
+    done_count: int = 0
+    points_earned: int = 0
+    points_total: int = 0
 
 
-class EntryOut(BaseModel):
+class TaskOut(BaseModel):
     id: str
     thread_id: str
-    status: str
-    label: str | None
-    meta: dict[str, Any]
-    created_at: str
-    closed_at: str | None
-
-
-class EntryItemOut(BaseModel):
-    id: str
-    entry_id: str
-    section: str | None
-    label: str
-    done: bool
+    user_id: str
+    title: str
+    status: str  # open | in_progress | done | dropped
+    priority: str  # high | med | low
     points: int
+    section: str | None
+    scheduled_for: str | None  # date as YYYY-MM-DD
+    due_at: str | None
     position: int
-    priority: str | None
-    scheduled: str | None
     meta: dict[str, Any]
+    created_at: str
+    updated_at: str
 
 
-class EntryMessageOut(BaseModel):
+class MessageOut(BaseModel):
     id: str
-    entry_id: str
-    role: str
-    text: str
-    item_ref: str | None
+    thread_id: str
+    role: str  # user | ai | system | tool
+    content: str
+    task_ref: str | None
     meta: dict[str, Any]
     created_at: str
 
 
-class CreateEntryBody(BaseModel):
-    label: str | None = None
+class CreateThreadBody(BaseModel):
+    template: str  # must be 'freeform'
+    title: str | None = None
+    coach_id: str = "arjun"
+
+
+class OccurrenceBody(BaseModel):
+    template: str
+    period_key: str  # caller computes and passes; server also validates/recomputes
+
+
+class CreateTaskBody(BaseModel):
+    title: str
+    priority: str = "med"
+    points: int = 0
+    section: str | None = None
+    scheduled_for: str | None = None
+    due_at: str | None = None
+    position: int = 0
     meta: dict[str, Any] = {}
-    items: list[dict[str, Any]] = []
-    messages: list[dict[str, Any]] = []
 
 
-class PatchItemBody(BaseModel):
-    done: bool | None = None
-    label: str | None = None
-    points: int | None = None
+class PatchTaskBody(BaseModel):
+    title: str | None = None
+    status: str | None = None
     priority: str | None = None
-    scheduled: str | None = None
-    meta: dict[str, Any] | None = None
-
-
-class PatchEntryBody(BaseModel):
-    # Shallow-merge into the existing meta. None means "unset that key".
-    meta: dict[str, Any] | None = None
+    points: int | None = None
+    section: str | None = None
+    scheduled_for: str | None = None
+    due_at: str | None = None
+    position: int | None = None
+    meta: dict[str, Any] | None = None  # shallow-merge
 
 
 class CreateMessageBody(BaseModel):
     role: str
-    text: str
-    item_ref: str | None = None
+    content: str
+    task_ref: str | None = None
     meta: dict[str, Any] = {}
 
 
-# ── Ownership helpers (service key bypasses RLS — we enforce auth in code) ────
+# ── Template metadata ─────────────────────────────────────────────────────────
 
-def _assert_entry_owner(db: Client, entry_id: str, user_id: str) -> dict:
-    """Return the entry row if it belongs to user_id, else 404."""
-    rows = (
-        db.table("v2_thread_entries")
-        .select("*, v2_threads!inner(user_id)")
-        .eq("id", entry_id)
-        .eq("v2_threads.user_id", user_id)
-        .execute()
-        .data
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="Entry not found")
-    return rows[0]
+THREAD_TAGS: dict[str, str] = {
+    "morning_ritual": "#MorningRitual",
+    "evening_ritual": "#EveningRitual",
+    "weekly_ritual": "#WeeklyRitual",
+    "freeform": "#Thread",
+}
+
+THREAD_TITLES: dict[str, str] = {
+    "morning_ritual": "Morning Ritual",
+    "evening_ritual": "Evening Ritual",
+    "weekly_ritual": "Weekly Ritual",
+    "freeform": "New Thread",
+}
+
+DEFAULT_COACHES: dict[str, str] = {
+    "morning_ritual": "arjun",
+    "evening_ritual": "arjun",
+    "weekly_ritual": "yudi",
+    "freeform": "arjun",
+}
+
+# Templates that are created by scheduler / occurrence upsert
+SCHEDULED_TEMPLATES = {"morning_ritual", "evening_ritual", "weekly_ritual"}
+
+# Template cadence
+TEMPLATE_CADENCE: dict[str, str] = {
+    "morning_ritual": "daily",
+    "evening_ritual": "daily",
+    "weekly_ritual": "weekly",
+    "freeform": "none",
+}
+
+SEED_TASKS: dict[str, list[dict]] = {
+    "morning_ritual": [
+        {"title": "Weight measurement",    "points": 2, "position": 0,  "meta": {"type": "action"}},
+        {"title": "Dental Care",            "points": 2, "position": 1,  "meta": {"type": "action"}},
+        {"title": "Shower",                 "points": 4, "position": 2,  "meta": {"type": "action"}},
+        {"title": "Skin Care",              "points": 3, "position": 3,  "meta": {"type": "action"}},
+        {"title": "Dress + Puja",           "points": 5, "position": 4,  "meta": {"type": "action"}},
+        {"title": "Pills",                  "points": 3, "position": 5,  "meta": {"type": "action"}},
+        {"title": "Get Water",              "points": 2, "position": 6,  "meta": {"type": "action"}},
+        {"title": "Defrost food",           "points": 2, "position": 7,  "meta": {"type": "action"}},
+        {"title": "Review Weekly Goals",    "points": 5, "position": 8,  "meta": {"type": "action"}},
+        {"title": "Visualize",              "points": 5, "position": 9,  "meta": {"type": "action"}},
+        {"title": "Top 3 Goals for the day","points": 8, "position": 10, "meta": {"type": "reflection"}},
+        {"title": "Time Block for the day", "points": 6, "position": 11, "meta": {"type": "reflection"}},
+        {"title": "Read 10 min",            "points": 5, "position": 12, "meta": {"type": "action"}},
+    ],
+    "evening_ritual": [
+        {"title": "Meal Logs for the day",               "points": 5, "position": 0, "meta": {"type": "action"}},
+        {"title": "Workout for the day",                 "points": 5, "position": 1, "meta": {"type": "action"}},
+        {"title": "Review top 3 priorities for the day", "points": 8, "position": 2, "meta": {"type": "morning_review"}},
+        {"title": "Review focus sessions",               "points": 5, "position": 3, "meta": {"type": "action"}},
+        {"title": "Plan the next day",                   "points": 8, "position": 4, "meta": {"type": "reflection"}},
+    ],
+    "weekly_ritual": [
+        {"title": "What were your 3 biggest wins this week?",    "points": 5, "position": 0, "section": "review", "meta": {"type": "reflection"}},
+        {"title": "What drained you the most?",                  "points": 5, "position": 1, "section": "review", "meta": {"type": "reflection"}},
+        {"title": "Where did you lose focus or time?",           "points": 5, "position": 2, "section": "review", "meta": {"type": "reflection"}},
+        {"title": "One thing you're proud of yourself for",      "points": 5, "position": 3, "section": "review", "meta": {"type": "reflection"}},
+        {"title": "Which habit or ritual needs more attention?", "points": 5, "position": 4, "section": "review", "meta": {"type": "reflection"}},
+        {"title": "What's the one most important thing this week?", "points": 5, "position": 0, "section": "plan", "meta": {"type": "reflection"}},
+        {"title": "Which habits do you want to protect?",            "points": 5, "position": 1, "section": "plan", "meta": {"type": "reflection"}},
+        {"title": "What will you do differently vs last week?",       "points": 5, "position": 2, "section": "plan", "meta": {"type": "reflection"}},
+        {"title": "Any blocks or challenges to watch for?",           "points": 5, "position": 3, "section": "plan", "meta": {"type": "reflection"}},
+    ],
+    "freeform": [],
+}
 
 
-def _assert_item_owner(db: Client, item_id: str, user_id: str) -> dict:
-    """Return the item row if it belongs to user_id (via entry → thread), else 404.
-
-    Uses two explicit queries rather than a double-nested PostgREST embed filter
-    to avoid relying on a supabase-py/PostgREST version-dependent code path that
-    could silently ignore the nested predicate.
-    """
-    item_rows = (
-        db.table("v2_entry_items").select("*").eq("id", item_id).execute().data
-    )
-    if not item_rows:
-        raise HTTPException(status_code=404, detail="Item not found")
-    # Reuse _assert_entry_owner to verify the entry's thread belongs to user_id.
-    _assert_entry_owner(db, item_rows[0]["entry_id"], user_id)
-    return item_rows[0]
-
-
-# ── Row mappers ───────────────────────────────────────────────────────────────
+# ── Infrastructure helpers ────────────────────────────────────────────────────
 
 def _parse_ts(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
@@ -182,7 +232,7 @@ def _safe_tz(tz_str: str) -> ZoneInfo:
     try:
         return ZoneInfo(tz_str)
     except (ZoneInfoNotFoundError, Exception):
-        return ZoneInfo("America/Los_Angeles")  # DEFAULT_TZ defined below
+        return ZoneInfo("America/Los_Angeles")
 
 
 def _ritual_date(dt: datetime, tz: ZoneInfo, day_start_hour: int) -> date:
@@ -206,6 +256,15 @@ def _is_today(created_at_str: str, tz: ZoneInfo, day_start_hour: int) -> bool:
         )
     except Exception:
         return False
+
+
+def _daily_period_key(dt: datetime, tz: ZoneInfo, day_start_hour: int) -> str:
+    return _ritual_date(dt, tz, day_start_hour).isoformat()  # '2026-06-07'
+
+
+def _weekly_period_key(dt: datetime, tz: ZoneInfo, day_start_hour: int) -> str:
+    d = _ritual_date(dt, tz, day_start_hour)  # apply day_start_hour shift first
+    return d.strftime("%G-W%V")  # '2026-W23'
 
 
 DEFAULT_TZ = ZoneInfo("America/Los_Angeles")
@@ -257,214 +316,156 @@ def _batch_user_schedules(db: Client, user_ids: list[str]) -> dict[str, tuple[Zo
     return out
 
 
-def _enrich_thread(
-    thread_row: dict,
-    entries: list[dict],
-    tz: ZoneInfo,
-    day_start_hour: int,
-) -> ThreadOut:
-    """Attach active_entry_id and last_entry_at computed from entries.
+# ── Ownership helpers ─────────────────────────────────────────────────────────
 
-    active_entry_id is only set when the entry was created today (per the user's
-    schedule) — so the Today view never surfaces a stale entry from a previous day.
-    """
-    thread_entries = [e for e in entries if e["thread_id"] == thread_row["id"]]
-    active = next(
-        (e for e in thread_entries if e["status"] == "active" and _is_today(e["created_at"], tz, day_start_hour)),
-        None,
+def _assert_thread_owner(db: Client, thread_id: str, user_id: str) -> dict:
+    """Return the thread row if it belongs to user_id, else 404."""
+    rows = (
+        db.table("v2_threads")
+        .select("*")
+        .eq("id", thread_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data
     )
-    last = max(thread_entries, key=lambda e: _parse_ts(e["created_at"]), default=None)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return rows[0]
+
+
+def _assert_task_owner(db: Client, task_id: str, user_id: str) -> dict:
+    """Return the task row if it belongs to user_id, else 404."""
+    rows = (
+        db.table("v2_tasks")
+        .select("*")
+        .eq("id", task_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return rows[0]
+
+
+# ── Row mappers ───────────────────────────────────────────────────────────────
+
+def _row_to_thread(row: dict, tasks: list[dict] | None = None) -> ThreadOut:
+    if tasks is None:
+        tasks = []
+    task_count = len(tasks)
+    done_count = sum(1 for t in tasks if t.get("status") == "done")
+    points_earned = sum(t.get("points", 0) for t in tasks if t.get("status") == "done")
+    points_total = sum(t.get("points", 0) for t in tasks)
     return ThreadOut(
-        id=thread_row["id"],
-        template=thread_row["template"],
-        coach_id=thread_row["coach_id"],
-        tag=thread_row["tag"],
-        title=thread_row.get("title") or thread_row["tag"],
-        active_entry_id=active["id"] if active else None,
-        last_entry_at=last["created_at"] if last else None,
+        id=row["id"],
+        user_id=row["user_id"],
+        template=row["template"],
+        coach_id=row["coach_id"],
+        tag=row["tag"],
+        title=row.get("title"),
+        period_key=row.get("period_key"),
+        archived_at=row.get("archived_at"),
+        meta=row.get("meta") or {},
+        created_at=row["created_at"],
+        task_count=task_count,
+        done_count=done_count,
+        points_earned=points_earned,
+        points_total=points_total,
     )
 
 
-def _row_to_entry(row: dict) -> EntryOut:
-    return EntryOut(
+def _row_to_task(row: dict) -> TaskOut:
+    scheduled_for = row.get("scheduled_for")
+    if scheduled_for and not isinstance(scheduled_for, str):
+        scheduled_for = str(scheduled_for)
+    return TaskOut(
         id=row["id"],
         thread_id=row["thread_id"],
-        status=row["status"],
-        label=row.get("label"),
-        meta=row.get("meta") or {},
-        created_at=row["created_at"],
-        closed_at=row.get("closed_at"),
-    )
-
-
-def _row_to_item(row: dict) -> EntryItemOut:
-    return EntryItemOut(
-        id=row["id"],
-        entry_id=row["entry_id"],
-        section=row.get("section"),
-        label=row["label"],
-        done=row.get("done", False),
+        user_id=row["user_id"],
+        title=row["title"],
+        status=row.get("status", "open"),
+        priority=row.get("priority", "med"),
         points=row.get("points", 0),
+        section=row.get("section"),
+        scheduled_for=scheduled_for,
+        due_at=row.get("due_at"),
         position=row.get("position", 0),
-        priority=row.get("priority"),
-        scheduled=row.get("scheduled"),
         meta=row.get("meta") or {},
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
 
 
-def _row_to_message(row: dict) -> EntryMessageOut:
-    return EntryMessageOut(
+def _row_to_message(row: dict) -> MessageOut:
+    return MessageOut(
         id=row["id"],
-        entry_id=row["entry_id"],
+        thread_id=row["thread_id"],
         role=row["role"],
-        text=row["text"],
-        item_ref=row.get("item_ref"),
+        content=row["content"],
+        task_ref=row.get("task_ref"),
         meta=row.get("meta") or {},
         created_at=row["created_at"],
     )
 
 
-# ── Daily reset ───────────────────────────────────────────────────────────────
+# ── Occurrence upsert ─────────────────────────────────────────────────────────
 
-DAILY_RESET_TEMPLATES = ("morning_ritual", "evening_ritual")
+def _upsert_occurrence(db: Client, user_id: str, template: str, period_key: str) -> tuple[dict, bool]:
+    """Idempotently create a ritual thread occurrence. Returns (row, created_bool).
 
-
-def _create_today_entry(db: Client, thread_id: str, template: str) -> str:
-    """Insert today's entry for a thread and seed its template items. Returns the new entry id.
-
-    If two concurrent requests both race past the "no today-entry" check and both try to
-    insert, the second will hit the v2_thread_entries_one_active_id unique constraint.
-    In that case we fall back to fetching the entry the winner already created.
+    Uses insert-then-fallback to handle concurrent requests safely — the partial
+    unique index v2_threads_ritual_uniq enforces one row per (user, template, period_key).
     """
+    tag = THREAD_TAGS.get(template, "#Thread")
+    title = THREAD_TITLES.get(template, template)
+    coach_id = DEFAULT_COACHES.get(template, "arjun")
+
     try:
         row = (
-            db.table("v2_thread_entries")
-            .insert({"thread_id": thread_id, "meta": {}})
+            db.table("v2_threads")
+            .insert({
+                "user_id": user_id,
+                "template": template,
+                "tag": tag,
+                "title": title,
+                "period_key": period_key,
+                "coach_id": coach_id,
+                "meta": {},
+            })
             .execute()
             .data[0]
         )
     except PostgRESTAPIError as e:
         msg = str(e)
-        if "v2_thread_entries_one_active_id" in msg or "duplicate key" in msg:
-            # Lost the race — another request already created the entry. Fetch it.
+        if "duplicate key" in msg or "v2_threads_ritual_uniq" in msg:
+            # Lost the race — another request already created this occurrence.
             existing = (
-                db.table("v2_thread_entries")
-                .select("id")
-                .eq("thread_id", thread_id)
-                .order("created_at", desc=True)
-                .limit(1)
+                db.table("v2_threads")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("template", template)
+                .eq("period_key", period_key)
                 .execute()
                 .data
             )
             if existing:
-                return existing[0]["id"]
+                return existing[0], False
         raise
 
-    entry_id = row["id"]
+    thread_id = row["id"]
 
-    template_items = (
-        db.table("v2_ritual_template_items")
-        .select("position, label, points, section, meta")
-        .eq("template", template)
-        .order("section", nullsfirst=True)
-        .order("position")
-        .execute()
-        .data
-    )
-    if template_items:
-        db.table("v2_entry_items").insert(
-            [{**item, "entry_id": entry_id} for item in template_items]
+    # Seed tasks for newly created thread
+    seed = SEED_TASKS.get(template, [])
+    if seed:
+        db.table("v2_tasks").insert(
+            [{**task, "thread_id": thread_id, "user_id": user_id} for task in seed]
         ).execute()
 
-    return entry_id
+    return row, True
 
 
-def _ensure_today_entry(
-    db: Client,
-    thread_id: str,
-    template: str,
-    tz: ZoneInfo,
-    day_start_hour: int,
-    known_entries: list[dict] | None = None,
-) -> str | None:
-    """Return the existing today-entry id for a thread, creating one if missing.
-
-    If `known_entries` is provided it's used in lieu of a fresh DB read — pass
-    pre-fetched rows (filtered to this thread) to avoid an N+1 query.
-    """
-    entries = known_entries
-    if entries is None:
-        entries = (
-            db.table("v2_thread_entries")
-            .select("id, created_at, status")
-            .eq("thread_id", thread_id)
-            .execute()
-            .data
-        )
-
-    for e in entries:
-        if _is_today(e["created_at"], tz, day_start_hour):
-            return e["id"]
-
-    return _create_today_entry(db, thread_id, template)
-
-
-def _daily_reset_job(target_tz_key: str | None = None, target_hour: int | None = None) -> dict:
-    """Ensure today's entries exist for ritual threads.
-
-    Without args, processes every user (used by manual /cron/daily-reset trigger).
-    With (target_tz_key, target_hour), processes only users whose profile matches
-    that schedule — the per-schedule cron jobs registered by `_sync_reset_schedules`
-    call it this way so each user is touched exactly when their day rolls over.
-    """
-    db = get_supabase()
-    scoped = target_tz_key is not None and target_hour is not None
-
-    threads = (
-        db.table("v2_threads")
-        .select("id, user_id, template")
-        .in_("template", list(DAILY_RESET_TEMPLATES))
-        .execute()
-        .data
-    )
-    if not threads:
-        return {"created": 0, "skipped": 0, "scope": _scope_label(target_tz_key, target_hour)}
-
-    thread_ids = [t["id"] for t in threads]
-    user_ids = list({t["user_id"] for t in threads})
-
-    entries_by_thread: dict[str, list[dict]] = {tid: [] for tid in thread_ids}
-    for e in (
-        db.table("v2_thread_entries")
-        .select("id, thread_id, created_at")
-        .in_("thread_id", thread_ids)
-        .execute()
-        .data
-    ):
-        entries_by_thread.setdefault(e["thread_id"], []).append(e)
-
-    schedules = _batch_user_schedules(db, user_ids)
-
-    created, skipped = 0, 0
-    for t in threads:
-        tz, day_start_hour = schedules[t["user_id"]]
-        if scoped:
-            user_key = (tz.key, day_start_hour)
-            # The default-schedule job is responsible for any user whose profile
-            # matches the default — including users with no profile row at all
-            # (they fall through to DEFAULT_TZ/DEFAULT_DAY_START_HOUR in batch_user_schedules).
-            if user_key != (target_tz_key, target_hour):
-                continue
-
-        thread_entries = entries_by_thread.get(t["id"], [])
-        if any(_is_today(e["created_at"], tz, day_start_hour) for e in thread_entries):
-            skipped += 1
-            continue
-        _ensure_today_entry(db, t["id"], t["template"], tz, day_start_hour, known_entries=thread_entries)
-        created += 1
-
-    return {"created": created, "skipped": skipped, "scope": _scope_label(target_tz_key, target_hour)}
-
+# ── Daily / weekly reset jobs ─────────────────────────────────────────────────
 
 def _scope_label(tz_key: str | None, hour: int | None) -> str:
     if tz_key is None or hour is None:
@@ -472,12 +473,89 @@ def _scope_label(tz_key: str | None, hour: int | None) -> str:
     return f"{tz_key}@{hour:02d}"
 
 
-def _sync_reset_schedules() -> dict:
-    """Register one cron job per distinct (timezone, day_start_hour) in v2_profiles.
+def _daily_reset_job(target_tz_key: str | None = None, target_hour: int | None = None) -> dict:
+    """Upsert today's morning and evening ritual occurrences for all users.
 
-    Always includes the default (DEFAULT_TZ, DEFAULT_DAY_START_HOUR) so users
-    without a profile row are still covered. Idempotent — removes stale schedules
-    and adds new ones, called both at startup and on a refresh tick.
+    Without args, processes every user (manual /cron/daily-reset trigger).
+    With (target_tz_key, target_hour), processes only users matching that schedule.
+    """
+    db = get_supabase()
+    now = datetime.now(timezone.utc)
+    scoped = target_tz_key is not None and target_hour is not None
+
+    # Get all users from v2_profiles (not v2_threads — new users have no threads yet)
+    try:
+        profile_rows = (
+            db.table("v2_profiles")
+            .select("id, timezone, day_start_hour")
+            .execute()
+            .data or []
+        )
+    except Exception:
+        profile_rows = []
+
+    # Always include the dev user if no profiles exist
+    if not profile_rows:
+        profile_rows = [{"id": None, "timezone": DEFAULT_TZ.key, "day_start_hour": DEFAULT_DAY_START_HOUR}]
+
+    created, skipped = 0, 0
+    for profile in profile_rows:
+        uid = profile.get("id")
+        if not uid:
+            continue
+        tz, day_start_hour = _row_to_schedule(profile)
+        if scoped:
+            if (tz.key, day_start_hour) != (target_tz_key, target_hour):
+                continue
+        period_key = _daily_period_key(now, tz, day_start_hour)
+        for template in ("morning_ritual", "evening_ritual"):
+            _, was_created = _upsert_occurrence(db, uid, template, period_key)
+            if was_created:
+                created += 1
+            else:
+                skipped += 1
+
+    return {"created": created, "skipped": skipped, "scope": _scope_label(target_tz_key, target_hour)}
+
+
+def _weekly_reset_job(target_tz_key: str | None = None, target_hour: int | None = None) -> dict:
+    """Upsert this week's weekly ritual occurrence for all users."""
+    db = get_supabase()
+    now = datetime.now(timezone.utc)
+    scoped = target_tz_key is not None and target_hour is not None
+
+    try:
+        profile_rows = (
+            db.table("v2_profiles")
+            .select("id, timezone, day_start_hour")
+            .execute()
+            .data or []
+        )
+    except Exception:
+        profile_rows = []
+
+    created, skipped = 0, 0
+    for profile in profile_rows:
+        uid = profile.get("id")
+        if not uid:
+            continue
+        tz, day_start_hour = _row_to_schedule(profile)
+        if scoped:
+            if (tz.key, day_start_hour) != (target_tz_key, target_hour):
+                continue
+        period_key = _weekly_period_key(now, tz, day_start_hour)
+        _, was_created = _upsert_occurrence(db, uid, "weekly_ritual", period_key)
+        if was_created:
+            created += 1
+        else:
+            skipped += 1
+
+    return {"created": created, "skipped": skipped, "scope": _scope_label(target_tz_key, target_hour)}
+
+
+def _sync_reset_schedules() -> dict:
+    """Register one daily + one weekly cron job per distinct (timezone, day_start_hour)
+    in v2_profiles. Idempotent — removes stale schedules and adds new ones.
     """
     db = get_supabase()
     schedules: set[tuple[str, int]] = {(DEFAULT_TZ.key, DEFAULT_DAY_START_HOUR)}
@@ -488,27 +566,41 @@ def _sync_reset_schedules() -> dict:
             hour = int(row.get("day_start_hour") or 0)
             schedules.add((tz.key, hour))
     except Exception:
-        # If profiles can't be read, fall back to just the default schedule —
-        # better to fire once a day at LA midnight than to silently skip everything.
         pass
 
-    desired_job_ids = {f"reset:{tz_key}:{hour:02d}" for tz_key, hour in schedules}
-    existing_resets = {j.id for j in _scheduler.get_jobs() if j.id.startswith("reset:")}
+    desired_daily_ids = {f"reset:{tz_key}:{hour:02d}" for tz_key, hour in schedules}
+    desired_weekly_ids = {f"weekly:{tz_key}:{hour:02d}" for tz_key, hour in schedules}
+    desired_job_ids = desired_daily_ids | desired_weekly_ids
+
+    existing_resets = {
+        j.id for j in _scheduler.get_jobs()
+        if j.id.startswith("reset:") or j.id.startswith("weekly:")
+    }
 
     for stale in existing_resets - desired_job_ids:
         _scheduler.remove_job(stale)
 
     for tz_key, hour in schedules:
-        job_id = f"reset:{tz_key}:{hour:02d}"
-        # replace_existing handles idempotency safely under concurrent calls
-        # (e.g. startup + the :15 resync tick racing on a slow boot).
+        daily_id = f"reset:{tz_key}:{hour:02d}"
         _scheduler.add_job(
             _daily_reset_job,
             "cron",
             hour=hour,
             minute=0,
             timezone=tz_key,
-            id=job_id,
+            id=daily_id,
+            kwargs={"target_tz_key": tz_key, "target_hour": hour},
+            replace_existing=True,
+        )
+        weekly_id = f"weekly:{tz_key}:{hour:02d}"
+        _scheduler.add_job(
+            _weekly_reset_job,
+            "cron",
+            day_of_week="mon",
+            hour=hour,
+            minute=0,
+            timezone=tz_key,
+            id=weekly_id,
             kwargs={"target_tz_key": tz_key, "target_hour": hour},
             replace_existing=True,
         )
@@ -527,29 +619,34 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "saarthi-v2"}
 
 
+# ── Cron endpoints ────────────────────────────────────────────────────────────
+
 @app.post("/cron/daily-reset")
 def trigger_daily_reset(x_cron_secret: str = Header(default="")) -> dict:
-    """Manually trigger the reset job across all users (useful for testing / backfill).
-
-    Requires the X-Cron-Secret header to match the CRON_SECRET env var. If
-    CRON_SECRET is unset the endpoint is disabled — preventing accidental
-    unauthenticated writes in any environment.
-    """
+    """Manually trigger the daily reset job across all users."""
     expected = os.environ.get("CRON_SECRET", "")
     if not expected or x_cron_secret != expected:
         raise HTTPException(status_code=403, detail="Forbidden")
     return _daily_reset_job()
 
 
+@app.post("/cron/weekly-reset")
+def trigger_weekly_reset(x_cron_secret: str = Header(default="")) -> dict:
+    expected = os.environ.get("CRON_SECRET", "")
+    if not expected or x_cron_secret != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return _weekly_reset_job()
+
+
 @app.get("/cron/schedules")
 def list_schedules(x_cron_secret: str = Header(default="")) -> dict:
-    """List the currently-registered reset cron schedules (auth-gated for parity)."""
+    """List the currently-registered reset cron schedules."""
     expected = os.environ.get("CRON_SECRET", "")
     if not expected or x_cron_secret != expected:
         raise HTTPException(status_code=403, detail="Forbidden")
     jobs = []
     for j in _scheduler.get_jobs():
-        if not j.id.startswith("reset:"):
+        if not (j.id.startswith("reset:") or j.id.startswith("weekly:")):
             continue
         jobs.append({
             "id": j.id,
@@ -561,378 +658,315 @@ def list_schedules(x_cron_secret: str = Header(default="")) -> dict:
 # ── Threads ───────────────────────────────────────────────────────────────────
 
 @app.get("/threads", response_model=list[ThreadOut])
-def list_threads(coach_id: str | None = None, today: bool = False):
-    # TODO: auth
+def list_threads(template: str | None = None, today: bool = False):
     user_id = get_dev_user_id()
     db = get_supabase()
+    now = datetime.now(timezone.utc)
 
     q = db.table("v2_threads").select("*").eq("user_id", user_id)
-    if coach_id:
-        q = q.eq("coach_id", coach_id)
+    if template:
+        q = q.eq("template", template)
     threads = q.execute().data
 
     if not threads:
         return []
 
-    thread_ids = [t["id"] for t in threads]
-    entries = (
-        db.table("v2_thread_entries")
-        .select("id, thread_id, status, created_at")
-        .in_("thread_id", thread_ids)
-        .execute()
-        .data
-    )
-
     tz, day_start_hour = _get_user_schedule(db, user_id)
 
-    # Lazy-create today's entry for any ritual thread that doesn't have one yet
-    # (handles the case where the cron missed a run or the user changed their schedule).
-    needs_today = {
-        t["id"]: t["template"]
-        for t in threads
-        if t["template"] in DAILY_RESET_TEMPLATES
-        and not any(
-            e["thread_id"] == t["id"] and _is_today(e["created_at"], tz, day_start_hour)
-            for e in entries
-        )
-    }
-    for thread_id, template in needs_today.items():
-        # We already know there's no today-entry — call the create helper directly
-        # so we don't re-fetch the rows we already have.
-        new_entry_id = _create_today_entry(db, thread_id, template)
-        entries.append({
-            "id": new_entry_id,
-            "thread_id": thread_id,
-            "status": "active",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+    # Lazy-upsert today's / this-week's occurrence for scheduled templates
+    thread_ids = [t["id"] for t in threads]
+    for t in threads:
+        cadence = TEMPLATE_CADENCE.get(t["template"], "none")
+        if cadence == "daily":
+            pk = _daily_period_key(now, tz, day_start_hour)
+            if t.get("period_key") != pk:
+                # Check if today's occurrence already exists for this template
+                existing = (
+                    db.table("v2_threads")
+                    .select("id")
+                    .eq("user_id", user_id)
+                    .eq("template", t["template"])
+                    .eq("period_key", pk)
+                    .execute()
+                    .data
+                )
+                if not existing:
+                    new_row, _ = _upsert_occurrence(db, user_id, t["template"], pk)
+                    threads.append(new_row)
+                    thread_ids.append(new_row["id"])
+        elif cadence == "weekly":
+            pk = _weekly_period_key(now, tz, day_start_hour)
+            if t.get("period_key") != pk:
+                existing = (
+                    db.table("v2_threads")
+                    .select("id")
+                    .eq("user_id", user_id)
+                    .eq("template", t["template"])
+                    .eq("period_key", pk)
+                    .execute()
+                    .data
+                )
+                if not existing:
+                    new_row, _ = _upsert_occurrence(db, user_id, t["template"], pk)
+                    threads.append(new_row)
+                    thread_ids.append(new_row["id"])
 
-    out = [_enrich_thread(t, entries, tz, day_start_hour) for t in threads]
+    # Fetch all tasks in one query; build per-thread map
+    all_tasks: list[dict] = []
+    if thread_ids:
+        all_tasks = (
+            db.table("v2_tasks")
+            .select("*")
+            .in_("thread_id", thread_ids)
+            .execute()
+            .data or []
+        )
+    tasks_by_thread: dict[str, list[dict]] = {}
+    for task in all_tasks:
+        tasks_by_thread.setdefault(task["thread_id"], []).append(task)
+
+    out = [_row_to_thread(t, tasks_by_thread.get(t["id"], [])) for t in threads]
+
     if today:
-        # Server-side gate for the Today view — drop any thread without a
-        # today-entry so no client cache state can leak yesterday's threads.
-        out = [t for t in out if t.active_entry_id is not None]
+        # Filter to threads whose period_key matches today's / this week's key
+        daily_pk = _daily_period_key(now, tz, day_start_hour)
+        weekly_pk = _weekly_period_key(now, tz, day_start_hour)
+        filtered = []
+        for thread_out, thread_row in zip(out, threads):
+            cadence = TEMPLATE_CADENCE.get(thread_row["template"], "none")
+            if cadence == "daily" and thread_row.get("period_key") == daily_pk:
+                filtered.append(thread_out)
+            elif cadence == "weekly" and thread_row.get("period_key") == weekly_pk:
+                filtered.append(thread_out)
+            # freeform (cadence == 'none') is excluded from today filter
+        return filtered
+
     return out
+
+
+@app.post("/threads/occurrence")
+def upsert_occurrence(body: OccurrenceBody, response: Response):
+    """Idempotent ritual thread upsert. Returns 201 on create, 200 if already existed."""
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    if body.template not in SCHEDULED_TEMPLATES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"template '{body.template}' is not a scheduled template",
+        )
+
+    row, created = _upsert_occurrence(db, user_id, body.template, body.period_key)
+
+    # Fetch tasks for this thread to compute counts
+    tasks = (
+        db.table("v2_tasks")
+        .select("*")
+        .eq("thread_id", row["id"])
+        .execute()
+        .data or []
+    )
+    thread_out = _row_to_thread(row, tasks)
+
+    if created:
+        response.status_code = 201
+    return {"thread": thread_out, "created": created}
+
+
+@app.post("/threads", response_model=ThreadOut, status_code=201)
+def create_thread(body: CreateThreadBody):
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    if body.template != "freeform":
+        raise HTTPException(
+            status_code=422,
+            detail="POST /threads only supports template='freeform'. Use POST /threads/occurrence for ritual templates.",
+        )
+
+    tag = THREAD_TAGS.get(body.template, "#Thread")
+    title = body.title or THREAD_TITLES.get(body.template, "New Thread")
+
+    row = (
+        db.table("v2_threads")
+        .insert({
+            "user_id": user_id,
+            "template": body.template,
+            "tag": tag,
+            "title": title,
+            "coach_id": body.coach_id,
+            "period_key": None,
+            "meta": {},
+        })
+        .execute()
+        .data[0]
+    )
+    return _row_to_thread(row, [])
 
 
 @app.get("/threads/{thread_id}")
 def get_thread(thread_id: str):
-    # TODO: auth
     user_id = get_dev_user_id()
     db = get_supabase()
 
-    thread_rows = (
-        db.table("v2_threads")
-        .select("*")
-        .eq("id", thread_id)
-        .eq("user_id", user_id)
-        .execute()
-        .data
-    )
-    if not thread_rows:
-        raise HTTPException(status_code=404, detail="Thread not found")
+    thread_row = _assert_thread_owner(db, thread_id, user_id)
 
-    entries_raw = (
-        db.table("v2_thread_entries")
+    tasks = (
+        db.table("v2_tasks")
         .select("*")
         .eq("thread_id", thread_id)
-        .order("created_at", desc=True)
-        .execute()
-        .data
-    )
-
-    tz, day_start_hour = _get_user_schedule(db, user_id)
-    thread_out = _enrich_thread(thread_rows[0], entries_raw, tz, day_start_hour)
-    entries_out = [_row_to_entry(e) for e in entries_raw]
-
-    return {"thread": thread_out, "entries": entries_out}
-
-
-# ── Entries ───────────────────────────────────────────────────────────────────
-
-@app.get("/entries/{entry_id}")
-def get_entry(entry_id: str):
-    # TODO: auth
-    user_id = get_dev_user_id()
-    db = get_supabase()
-
-    entry_row = _assert_entry_owner(db, entry_id, user_id)
-
-    items = (
-        db.table("v2_entry_items")
-        .select("*")
-        .eq("entry_id", entry_id)
+        .order("section", nullsfirst=True)
         .order("position")
         .execute()
-        .data
+        .data or []
     )
     messages = (
-        db.table("v2_entry_messages")
+        db.table("v2_thread_messages")
         .select("*")
-        .eq("entry_id", entry_id)
+        .eq("thread_id", thread_id)
         .order("created_at")
         .execute()
-        .data
+        .data or []
     )
 
     return {
-        "entry": _row_to_entry(entry_row),
-        "items": [_row_to_item(i) for i in items],
+        "thread": _row_to_thread(thread_row, tasks),
+        "tasks": [_row_to_task(t) for t in tasks],
         "messages": [_row_to_message(m) for m in messages],
     }
 
 
-@app.post("/threads/{thread_id}/entries", response_model=EntryOut, status_code=201)
-def create_entry(thread_id: str, body: CreateEntryBody):
-    # TODO: auth
+# ── Tasks ─────────────────────────────────────────────────────────────────────
+
+@app.get("/threads/{thread_id}/tasks", response_model=list[TaskOut])
+def list_tasks(thread_id: str, status: str | None = None):
     user_id = get_dev_user_id()
     db = get_supabase()
 
-    # Verify thread belongs to user
-    thread_rows = (
-        db.table("v2_threads")
-        .select("id, template")
-        .eq("id", thread_id)
-        .eq("user_id", user_id)
-        .execute()
-        .data
-    )
-    if not thread_rows:
-        raise HTTPException(status_code=404, detail="Thread not found")
+    _assert_thread_owner(db, thread_id, user_id)
 
-    # Check for existing active entry (the DB partial unique index enforces this
-    # too, but we surface a friendly 422 before hitting the constraint).
-    active_rows = (
-        db.table("v2_thread_entries")
-        .select("id")
+    q = (
+        db.table("v2_tasks")
+        .select("*")
         .eq("thread_id", thread_id)
-        .eq("status", "active")
-        .execute()
-        .data
-    )
-    if active_rows:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "active_entry_exists",
-                "active_entry_id": active_rows[0]["id"],
-            },
-        )
-
-    row = (
-        db.table("v2_thread_entries")
-        .insert({"thread_id": thread_id, "label": body.label, "meta": body.meta})
-        .execute()
-        .data[0]
-    )
-    entry_id = row["id"]
-
-    # Note: if either insert below fails the entry row is already committed, leaving
-    # an active entry with no items/messages. The caller must close it before retrying.
-    # Acceptable tradeoff — multi-table transactions require a DB function or RPC.
-    template = thread_rows[0].get("template")
-    template_items = (
-        db.table("v2_ritual_template_items")
-        .select("position, label, points, section, meta")
-        .eq("template", template)
         .order("section", nullsfirst=True)
         .order("position")
-        .execute()
-        .data
-    ) if template else []
-    # Template rows win when present; otherwise fall back to caller-supplied items
-    # so non-ritual threads (and ad-hoc test fixtures) keep working.
-    items_to_insert = template_items if template_items else (body.items or [])
-    if items_to_insert:
-        result = db.table("v2_entry_items").insert(
-            [{**item, "entry_id": entry_id} for item in items_to_insert]
-        ).execute()
-        if not result.data:
-            raise HTTPException(status_code=500, detail="Failed to seed entry items")
-
-    if body.messages:
-        result = db.table("v2_entry_messages").insert(
-            [{**msg, "entry_id": entry_id} for msg in body.messages]
-        ).execute()
-        if not result.data:
-            raise HTTPException(status_code=500, detail="Failed to seed entry messages")
-
-    return _row_to_entry(row)
+    )
+    if status:
+        q = q.eq("status", status)
+    rows = q.execute().data or []
+    return [_row_to_task(r) for r in rows]
 
 
-@app.patch("/entries/{entry_id}/close", response_model=EntryOut)
-def close_entry(entry_id: str):
-    # TODO: auth
+@app.post("/threads/{thread_id}/tasks", response_model=TaskOut, status_code=201)
+def create_task(thread_id: str, body: CreateTaskBody):
     user_id = get_dev_user_id()
     db = get_supabase()
 
-    # Verify ownership before mutating
-    _assert_entry_owner(db, entry_id, user_id)
+    _assert_thread_owner(db, thread_id, user_id)
 
-    closed_at = datetime.now(timezone.utc).isoformat()
+    payload: dict[str, Any] = {
+        "thread_id": thread_id,
+        "user_id": user_id,
+        "title": body.title,
+        "priority": body.priority,
+        "points": body.points,
+        "position": body.position,
+        "meta": body.meta,
+    }
+    if body.section is not None:
+        payload["section"] = body.section
+    if body.scheduled_for is not None:
+        payload["scheduled_for"] = body.scheduled_for
+    if body.due_at is not None:
+        payload["due_at"] = body.due_at
+
+    row = db.table("v2_tasks").insert(payload).execute().data[0]
+    return _row_to_task(row)
+
+
+@app.patch("/tasks/{task_id}", response_model=TaskOut)
+def patch_task(task_id: str, body: PatchTaskBody):
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    existing = _assert_task_owner(db, task_id, user_id)
+
+    patch = body.model_dump(exclude_unset=True)
+    if not patch:
+        return _row_to_task(existing)
+
+    # Shallow-merge meta rather than replacing
+    if "meta" in patch and patch["meta"] is not None:
+        merged_meta = {**(existing.get("meta") or {}), **patch["meta"]}
+        patch["meta"] = merged_meta
+
+    rows = db.table("v2_tasks").update(patch).eq("id", task_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return _row_to_task(rows[0])
+
+
+@app.delete("/tasks/{task_id}", response_model=TaskOut)
+def drop_task(task_id: str):
+    """Soft-delete: sets status='dropped'."""
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    _assert_task_owner(db, task_id, user_id)
+
     rows = (
-        db.table("v2_thread_entries")
-        .update({"status": "closed", "closed_at": closed_at})
-        .eq("id", entry_id)
-        .eq("status", "active")
+        db.table("v2_tasks")
+        .update({"status": "dropped"})
+        .eq("id", task_id)
         .execute()
         .data
     )
     if not rows:
-        raise HTTPException(status_code=404, detail="Active entry not found")
-
-    thread_row = (
-        db.table("v2_threads")
-        .select("template")
-        .eq("id", rows[0]["thread_id"])
-        .single()
-        .execute()
-        .data
-    )
-    if thread_row and thread_row["template"] == "morning_ritual":
-        _forward_morning_top3(db, entry_id, user_id)
-
-    return _row_to_entry(rows[0])
+        raise HTTPException(status_code=404, detail="Task not found")
+    return _row_to_task(rows[0])
 
 
-@app.patch("/entries/{entry_id}", response_model=EntryOut)
-def patch_entry(entry_id: str, body: PatchEntryBody):
-    """Shallow-merge a meta patch into the entry. Keys with value `None` are deleted."""
+# ── Messages ──────────────────────────────────────────────────────────────────
+
+@app.get("/threads/{thread_id}/messages", response_model=list[MessageOut])
+def list_messages(thread_id: str):
     user_id = get_dev_user_id()
     db = get_supabase()
 
-    existing = _assert_entry_owner(db, entry_id, user_id)
-
-    if body.meta is None:
-        return _row_to_entry(existing)
-
-    merged = {**(existing.get("meta") or {})}
-    for k, v in body.meta.items():
-        if v is None:
-            merged.pop(k, None)
-        else:
-            merged[k] = v
+    _assert_thread_owner(db, thread_id, user_id)
 
     rows = (
-        db.table("v2_thread_entries")
-        .update({"meta": merged})
-        .eq("id", entry_id)
-        .execute()
-        .data
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="Entry not found")
-    return _row_to_entry(rows[0])
-
-
-def _forward_morning_top3(db: Client, morning_entry_id: str, user_id: str) -> None:
-    items = (
-        db.table("v2_entry_items")
-        .select("id")
-        .eq("entry_id", morning_entry_id)
-        .eq("label", "Top 3 Goals for the day")
-        .execute()
-        .data
-    )
-    if not items:
-        return
-    item_id = items[0]["id"]
-
-    msgs = (
-        db.table("v2_entry_messages")
-        .select("text, created_at")
-        .eq("entry_id", morning_entry_id)
-        .eq("item_ref", item_id)
-        .eq("role", "user")
+        db.table("v2_thread_messages")
+        .select("*")
+        .eq("thread_id", thread_id)
         .order("created_at")
         .execute()
-        .data
+        .data or []
     )
-    if not msgs:
-        return
-    # Last message wins — edits and corrections supersede the first attempt.
-    top3_text = msgs[-1]["text"]
-
-    evening_threads = (
-        db.table("v2_threads")
-        .select("id")
-        .eq("user_id", user_id)
-        .eq("template", "evening_ritual")
-        .execute()
-        .data
-    )
-    if not evening_threads:
-        return
-    evening_thread_id = evening_threads[0]["id"]
-
-    active_evening = (
-        db.table("v2_thread_entries")
-        .select("id, meta")
-        .eq("thread_id", evening_thread_id)
-        .eq("status", "active")
-        .execute()
-        .data
-    )
-    if not active_evening:
-        return
-
-    existing_meta = active_evening[0].get("meta") or {}
-    db.table("v2_thread_entries").update(
-        {"meta": {**existing_meta, "morning_top3": top3_text}}
-    ).eq("id", active_evening[0]["id"]).execute()
+    return [_row_to_message(r) for r in rows]
 
 
-# ── Entry items ───────────────────────────────────────────────────────────────
-
-@app.patch("/entry_items/{item_id}", response_model=EntryItemOut)
-def patch_item(item_id: str, body: PatchItemBody):
-    # TODO: auth
+@app.post("/threads/{thread_id}/messages", response_model=MessageOut, status_code=201)
+def create_message(thread_id: str, body: CreateMessageBody):
     user_id = get_dev_user_id()
     db = get_supabase()
 
-    # Verify ownership (items → entries → threads)
-    _assert_item_owner(db, item_id, user_id)
+    if body.role not in ("user", "ai", "system", "tool"):
+        raise HTTPException(status_code=422, detail="role must be one of: user, ai, system, tool")
 
-    patch = body.model_dump(exclude_none=True)
-    if not patch:
-        raise HTTPException(status_code=422, detail="No fields to update")
+    _assert_thread_owner(db, thread_id, user_id)
 
-    rows = (
-        db.table("v2_entry_items").update(patch).eq("id", item_id).execute().data
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="Item not found")
-    return _row_to_item(rows[0])
+    payload: dict[str, Any] = {
+        "thread_id": thread_id,
+        "role": body.role,
+        "content": body.content,
+        "meta": body.meta,
+    }
+    if body.task_ref is not None:
+        payload["task_ref"] = body.task_ref
 
-
-# ── Entry messages ────────────────────────────────────────────────────────────
-
-@app.post("/entries/{entry_id}/messages", response_model=EntryMessageOut, status_code=201)
-def create_message(entry_id: str, body: CreateMessageBody):
-    # TODO: auth
-    user_id = get_dev_user_id()
-    db = get_supabase()
-
-    if body.role not in ("ai", "user"):
-        raise HTTPException(status_code=422, detail="role must be 'ai' or 'user'")
-
-    # Verify ownership before inserting
-    _assert_entry_owner(db, entry_id, user_id)
-
-    row = (
-        db.table("v2_entry_messages")
-        .insert(
-            {
-                "entry_id": entry_id,
-                "role": body.role,
-                "text": body.text,
-                "item_ref": body.item_ref,
-                "meta": body.meta,
-            }
-        )
-        .execute()
-        .data[0]
-    )
+    row = db.table("v2_thread_messages").insert(payload).execute().data[0]
     return _row_to_message(row)
 
 

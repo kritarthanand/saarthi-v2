@@ -3,8 +3,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Colors, threadTheme } from '@/constants/theme';
 import type { Coach } from '@/constants/pandavas';
 import { ChevRightIcon } from '@/components/icons';
-import { FIXTURE_THREADS, getFixtureBundle } from '@/lib/threads.fixture';
-import { TODAY_THREADS } from '@/lib/mockData';
+import { useThreads } from '@/lib/threads.hooks';
 
 // Coach accents are palette hex today but defensively accept rgb()/rgba() too,
 // so a future palette migration to rgba() can't silently break the border.
@@ -57,11 +56,12 @@ export function CoachDetail({
   onClose?: () => void;
   onOpenThread?: (threadId: string) => void;
 }) {
-  const coachThreads = FIXTURE_THREADS.filter((t) => t.coach_id === coach.id);
+  const { threads: coachThreads } = useThreads();
+  const filtered = coachThreads.filter((t) => t.coach_id === coach.id);
+
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-      {/* Header band — coach's accent color tints the top so each brother
-          has a clear identity even though the rest of the chrome is shared. */}
+      {/* Header band */}
       <View
         style={{
           paddingTop: topInset,
@@ -368,23 +368,16 @@ export function CoachDetail({
         )}
 
         {/* ── Threads ─────────────────────────────────────────────── */}
-        {coachThreads.length > 0 && (
+        {filtered.length > 0 && (
           <>
             <SectionLabel color={coach.accent}>Threads</SectionLabel>
             <View style={{ gap: 10, marginBottom: 22 }}>
-              {coachThreads.map((t) => {
-                const bundle = getFixtureBundle(t.tag);
-                const activeEntry = bundle?.entries.find((e) => e.status === 'active') ?? null;
-                const activeItems = activeEntry
-                  ? bundle!.items.filter((i) => i.entry_id === activeEntry.id)
-                  : [];
-                const doneCount = activeItems.filter((i) => i.done).length;
+              {filtered.map((t) => {
                 const tTheme = threadTheme(t.tag);
-                const todayThread = TODAY_THREADS.find((tt) => tt.tag === t.tag);
                 return (
                   <Pressable
                     key={t.id}
-                    onPress={() => todayThread && onOpenThread && onOpenThread(todayThread.id)}
+                    onPress={() => onOpenThread && onOpenThread(t.id)}
                     style={{
                       borderRadius: 14,
                       backgroundColor: Colors.bgCard,
@@ -401,11 +394,9 @@ export function CoachDetail({
                       <Text style={{ fontSize: 15, color: Colors.text, fontWeight: '600' }}>
                         {t.tag}
                       </Text>
-                      {activeEntry && (
+                      {t.task_count > 0 && (
                         <Text style={{ fontSize: 12.5, color: Colors.textDim, marginTop: 3 }}>
-                          {activeItems.length > 0
-                            ? `${doneCount} of ${activeItems.length} done`
-                            : activeEntry.label ?? 'Active'}
+                          {t.done_count} of {t.task_count} done
                         </Text>
                       )}
                     </View>
@@ -418,7 +409,7 @@ export function CoachDetail({
                       }}
                     >
                       <Text style={{ fontSize: 11, color: tTheme.color, fontWeight: '700' }}>
-                        {activeEntry?.label ?? t.title}
+                        {t.title ?? t.tag}
                       </Text>
                     </View>
                     <ChevRightIcon size={16} />

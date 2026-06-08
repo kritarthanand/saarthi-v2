@@ -13,7 +13,14 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { ThreadTemplate } from '../src/lib/threads';
+import type { ThreadTemplate } from '../src/lib/threads';
+
+// String constants matching the ThreadTemplate type values
+const T = {
+  MorningRitual: 'morning_ritual' as ThreadTemplate,
+  EveningRitual: 'evening_ritual' as ThreadTemplate,
+  WeeklyRitual:  'weekly_ritual'  as ThreadTemplate,
+} as const;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -34,9 +41,9 @@ const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 // ── Fixture data ──────────────────────────────────────────────────────────────
 
 const THREADS = [
-  { template: ThreadTemplate.MorningRitual, coach_id: 'sahdev', tag: '#MorningRitual', title: 'Morning Ritual' },
-  { template: ThreadTemplate.EveningRitual, coach_id: 'sahdev', tag: '#EveningRitual', title: 'Evening Ritual' },
-  { template: ThreadTemplate.WeeklyRitual,  coach_id: 'sahdev', tag: '#WeeklyRitual',  title: 'Weekly Ritual'  },
+  { template: T.MorningRitual, coach_id: 'sahdev', tag: '#MorningRitual', title: 'Morning Ritual' },
+  { template: T.EveningRitual, coach_id: 'sahdev', tag: '#EveningRitual', title: 'Evening Ritual' },
+  { template: T.WeeklyRitual,  coach_id: 'sahdev', tag: '#WeeklyRitual',  title: 'Weekly Ritual'  },
 ];
 
 type EntrySpec = {
@@ -72,7 +79,7 @@ type MessageSpec = {
 const ENTRIES: EntrySpec[] = [
   // ── Morning ──────────────────────────────────────────────────────────────
   {
-    template: ThreadTemplate.MorningRitual,
+    template: T.MorningRitual,
     status: 'active',
     label: 'Wed Jun 4',
     created_at: '2026-06-04T07:00:00Z',
@@ -93,7 +100,7 @@ const ENTRIES: EntrySpec[] = [
     ],
   },
   {
-    template: ThreadTemplate.MorningRitual,
+    template: T.MorningRitual,
     status: 'closed',
     label: 'Tue Jun 3',
     created_at: '2026-06-03T07:00:00Z',
@@ -113,7 +120,7 @@ const ENTRIES: EntrySpec[] = [
     ],
   },
   {
-    template: ThreadTemplate.MorningRitual,
+    template: T.MorningRitual,
     status: 'closed',
     label: 'Mon Jun 2',
     created_at: '2026-06-02T07:00:00Z',
@@ -132,7 +139,7 @@ const ENTRIES: EntrySpec[] = [
 
   // ── Evening ───────────────────────────────────────────────────────────────
   {
-    template: ThreadTemplate.EveningRitual,
+    template: T.EveningRitual,
     status: 'active',
     label: 'Wed Jun 4',
     created_at: '2026-06-04T21:00:00Z',
@@ -149,7 +156,7 @@ const ENTRIES: EntrySpec[] = [
 
   // ── Weekly ────────────────────────────────────────────────────────────────
   {
-    template: ThreadTemplate.WeeklyRitual,
+    template: T.WeeklyRitual,
     status: 'active',
     label: 'Jun 1–7',
     meta: { total_points: 134, days_completed: 3, streak: 3, completion_pct: 72 },

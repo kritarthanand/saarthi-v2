@@ -4,13 +4,13 @@ import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { Colors, threadTheme } from '@/constants/theme';
 import {
   HISTORY_DAYS,
-  liveMessageCount,
-  THREAD_CHATS,
   type HistoryDay,
-  type Thread,
 } from '@/lib/mockData';
 import { AppHeader } from '../AppHeader';
 import { ChevRightIcon } from '../icons';
+
+// Minimal shape accepted from both the new Thread (threads.ts) and legacy mock Thread
+type ThreadRef = { id: string; tag: string };
 
 const PAGE = 5;
 
@@ -19,7 +19,7 @@ export function ChatHistoryView({
   onOpenThread,
   topInset = 52,
 }: {
-  threads: Thread[];
+  threads: ThreadRef[];
   onOpenThread: (id: string) => void;
   topInset?: number;
 }) {
@@ -30,12 +30,10 @@ export function ChatHistoryView({
     setCount((c) => Math.min(c + 2, HISTORY_DAYS.length));
   }, []);
 
-  // Mirror VoiceSession.pickerThreads: drop locked threads (they aren't openable)
-  // and dedupe by tag so two `#FocusAndToDo`s don't render as identical chips.
+  // Dedupe by tag so two threads with the same tag don't render as identical chips.
   const activeThreads = useMemo(() => {
-    const seen = new Map<string, Thread>();
+    const seen = new Map<string, ThreadRef>();
     for (const t of threads) {
-      if (t.locked) continue;
       if (!seen.has(t.tag)) seen.set(t.tag, t);
     }
     return [...seen.values()];
@@ -62,7 +60,6 @@ export function ChatHistoryView({
         >
           {activeThreads.map((t) => {
             const theme = threadTheme(t.tag);
-            const messageCount = liveMessageCount(t, THREAD_CHATS);
             return (
               <Pressable
                 key={t.id}
@@ -77,9 +74,6 @@ export function ChatHistoryView({
                 }}
               >
                 <Text style={{ fontSize: 13, color: theme.color, fontWeight: '700' }}>{t.tag}</Text>
-                <Text style={{ fontSize: 10.5, color: Colors.textDim, fontWeight: '500' }}>
-                  {messageCount} {messageCount === 1 ? 'message' : 'messages'}
-                </Text>
               </Pressable>
             );
           })}

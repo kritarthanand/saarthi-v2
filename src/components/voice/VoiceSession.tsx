@@ -2,7 +2,11 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { SUGGESTED_NEW_TAGS, timeAgoFor, type ChatMessage, type Thread } from '@/lib/mockData';
+import { SUGGESTED_NEW_TAGS, type ChatMessage } from '@/lib/mockData';
+
+// Minimal shape accepted by existingThreads — compatible with both the legacy mockData Thread
+// and the new Thread from threads.ts (for the empty-array stub in index.tsx).
+type ThreadRef = { id: string; tag: string; locked?: boolean };
 import { Hashtag } from '../Hashtag';
 import { CheckIcon, MicIcon } from '../icons';
 
@@ -48,7 +52,7 @@ export const VoiceSession = forwardRef<
     accent?: string;
     maxSeconds?: number;
     warnSeconds?: number;
-    existingThreads: Thread[];
+    existingThreads: ThreadRef[];
     onClose: () => void;
     onSave?: (payload: VoiceSavePayload) => void;
     topInset?: number;
@@ -88,7 +92,7 @@ export const VoiceSession = forwardRef<
   // dedupe by tag so identical chips don't appear side-by-side. Keep the newest
   // thread per tag so accent/timeAgo reflect the live one.
   const pickerThreads = useMemo(() => {
-    const seen = new Map<string, Thread>();
+    const seen = new Map<string, ThreadRef>();
     for (const t of existingThreads) {
       if (t.locked) continue;
       if (!seen.has(t.tag)) seen.set(t.tag, t);
@@ -277,7 +281,7 @@ export const VoiceSession = forwardRef<
               <Pressable
                 key={t.id}
                 accessibilityRole="button"
-                accessibilityLabel={`Capture into ${t.tag}, ${timeAgoFor(t)}`}
+                accessibilityLabel={`Capture into ${t.tag}`}
                 onPress={() => {
                   setHashtag(t.tag);
                   setShowPicker(false);
@@ -285,7 +289,7 @@ export const VoiceSession = forwardRef<
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
               >
                 <Hashtag tag={t.tag} size="md" />
-                <Text style={{ fontSize: 10, color: Colors.textFaint, fontWeight: '500' }}>{timeAgoFor(t)}</Text>
+                <Text style={{ fontSize: 10, color: Colors.textFaint, fontWeight: '500' }}>{t.tag}</Text>
               </Pressable>
             ))}
             {pickerThreads.length === 0 && (

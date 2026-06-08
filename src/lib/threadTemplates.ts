@@ -3,7 +3,7 @@ import type React from 'react';
 import { MorningRitualSummary } from '@/components/thread/MorningRitualSummary';
 import { EveningRitualSummary } from '@/components/thread/EveningRitualSummary';
 import { WeeklyRitualSummary } from '@/components/thread/WeeklyRitualSummary';
-import { ThreadChat } from '@/components/thread/ThreadChat';
+import { FreeformSummaryView } from '@/components/thread/FreeformSummaryView';
 
 import type { CoachId, Thread, Task, TaskStatus, ThreadMessage } from './threads';
 
@@ -63,7 +63,7 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateConfig> = {
       { title: 'Time Block for the day',     points: 6,  meta: { type: 'reflection' } },
       { title: 'Read 10 min',                points: 5,  meta: { type: 'learning' } },
     ],
-    SummaryView: MorningRitualSummary as unknown as React.ComponentType<SummaryViewProps>,
+    SummaryView: MorningRitualSummary,
   },
 
   evening_ritual: {
@@ -80,7 +80,7 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateConfig> = {
       { title: 'Review focus sessions',              points: 5, meta: { type: 'reflection' } },
       { title: 'Plan the next day',                  points: 8, meta: { type: 'reflection' } },
     ],
-    SummaryView: EveningRitualSummary as unknown as React.ComponentType<SummaryViewProps>,
+    SummaryView: EveningRitualSummary,
   },
 
   weekly_ritual: {
@@ -104,7 +104,7 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateConfig> = {
       { title: 'What to do differently',         section: 'plan', points: 5, meta: { type: 'reflection' } },
       { title: 'Blocks to watch for',            section: 'plan', points: 5, meta: { type: 'goals' } },
     ],
-    SummaryView: WeeklyRitualSummary as unknown as React.ComponentType<SummaryViewProps>,
+    SummaryView: WeeklyRitualSummary,
   },
 
   freeform: {
@@ -115,15 +115,7 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateConfig> = {
     defaultCoach: 'arjun',
     carryOver: false,
     seedTasks: [],
-    SummaryView: ThreadChat as unknown as React.ComponentType<SummaryViewProps>,
+    SummaryView: FreeformSummaryView,
   },
 };
 
-// TAG_TO_TEMPLATE kept for backwards compatibility during W3 migration.
-// ThreadDetail.tsx still uses it; will be removed in W3-6.
-export const TAG_TO_TEMPLATE: Partial<Record<string, string>> = {
-  '#MorningRitual': 'morning_ritual',
-  '#EveningRitual': 'evening_ritual',
-  '#WeeklyRitual':  'weekly_ritual',
-  '#Thread':        'freeform',
-};

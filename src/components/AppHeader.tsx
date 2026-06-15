@@ -1,3 +1,4 @@
+import type React from 'react';
 import { Text, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
@@ -9,7 +10,7 @@ export function AppHeader({
   topInset = 52,
 }: {
   title: string;
-  right?: string;
+  right?: string | React.ReactNode;
   topInset?: number;
 }) {
   return (
@@ -29,8 +30,12 @@ export function AppHeader({
           {title}
         </Text>
       </View>
-      {right ? (
-        <Text style={{ fontSize: 13, color: Colors.textDim, fontWeight: '500' }}>{right}</Text>
+      {right != null ? (
+        typeof right === 'string' ? (
+          <Text style={{ fontSize: 13, color: Colors.textDim, fontWeight: '500' }}>{right}</Text>
+        ) : (
+          right
+        )
       ) : null}
     </View>
   );

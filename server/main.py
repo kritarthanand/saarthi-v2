@@ -110,9 +110,9 @@ class MessageOut(BaseModel):
 
 
 class CreateThreadBody(BaseModel):
-    template: str  # must be 'freeform'
+    template: str  # must be in API_TEMPLATES (freeform, workout_logging, focus_time)
     title: str | None = None
-    coach_id: str = "arjun"
+    coach_id: str | None = None  # defaults to DEFAULT_COACHES[template]
 
 
 class OccurrenceBody(BaseModel):
@@ -153,35 +153,61 @@ class CreateMessageBody(BaseModel):
 # ── Template metadata ─────────────────────────────────────────────────────────
 
 THREAD_TAGS: dict[str, str] = {
-    "morning_ritual": "#MorningRitual",
-    "evening_ritual": "#EveningRitual",
-    "weekly_ritual": "#WeeklyRitual",
-    "freeform": "#Thread",
+    "morning_ritual":  "#MorningRitual",
+    "evening_ritual":  "#EveningRitual",
+    "weekly_ritual":   "#WeeklyRitual",
+    "freeform":        "#Thread",
+    "meal_logging":    "#MealLog",
+    "workout_logging": "#WorkoutLog",
+    "focus_time":      "#FocusTime",
+    "clean_ritual":    "#CleanRitual",
+    "catch_up":        "#CatchUp",
 }
 
 THREAD_TITLES: dict[str, str] = {
-    "morning_ritual": "Morning Ritual",
-    "evening_ritual": "Evening Ritual",
-    "weekly_ritual": "Weekly Ritual",
-    "freeform": "New Thread",
+    "morning_ritual":  "Morning Ritual",
+    "evening_ritual":  "Evening Ritual",
+    "weekly_ritual":   "Weekly Ritual",
+    "freeform":        "New Thread",
+    "meal_logging":    "Meal Log",
+    "workout_logging": "Workout",
+    "focus_time":      "Focus Session",
+    "clean_ritual":    "Clean Ritual",
+    "catch_up":        "Catch Up",
 }
 
 DEFAULT_COACHES: dict[str, str] = {
-    "morning_ritual": "arjun",
-    "evening_ritual": "arjun",
-    "weekly_ritual": "yudi",
-    "freeform": "arjun",
+    "morning_ritual":  "arjun",
+    "evening_ritual":  "arjun",
+    "weekly_ritual":   "yudi",
+    "freeform":        "arjun",
+    "meal_logging":    "bheem",
+    "workout_logging": "bheem",
+    "focus_time":      "arjun",
+    "clean_ritual":    "yudi",
+    "catch_up":        "yudi",
 }
 
 # Templates that are created by scheduler / occurrence upsert
-SCHEDULED_TEMPLATES = {"morning_ritual", "evening_ritual", "weekly_ritual"}
+SCHEDULED_TEMPLATES = {
+    "morning_ritual", "evening_ritual", "weekly_ritual",
+    "meal_logging", "clean_ritual", "catch_up",
+}
+
+# Templates creatable on-demand via POST /threads (no period_key, no uniqueness constraint)
+API_TEMPLATES = {"freeform", "workout_logging", "focus_time"}
 
 # Template cadence
 TEMPLATE_CADENCE: dict[str, str] = {
-    "morning_ritual": "daily",
-    "evening_ritual": "daily",
-    "weekly_ritual": "weekly",
-    "freeform": "none",
+    "morning_ritual":  "daily",
+    "evening_ritual":  "daily",
+    "weekly_ritual":   "weekly",
+    "freeform":        "none",
+    "meal_logging":    "daily",
+    "workout_logging": "none",
+    "focus_time":      "none",
+    "clean_ritual":    "weekly",
+    "catch_up":        "weekly",
 }
 
 SEED_TASKS: dict[str, list[dict]] = {
@@ -219,6 +245,43 @@ SEED_TASKS: dict[str, list[dict]] = {
         {"title": "Any blocks or challenges to watch for?",           "points": 5, "position": 3, "section": "plan", "meta": {"type": "reflection"}},
     ],
     "freeform": [],
+    "meal_logging": [
+        {"title": "Log breakfast",         "points": 3, "position": 0, "meta": {"type": "nutrition"}},
+        {"title": "Log lunch",             "points": 3, "position": 1, "meta": {"type": "nutrition"}},
+        {"title": "Log dinner",            "points": 3, "position": 2, "meta": {"type": "nutrition"}},
+        {"title": "Log snacks",            "points": 2, "position": 3, "meta": {"type": "nutrition"}},
+        {"title": "Track water intake",    "points": 2, "position": 4, "meta": {"type": "nutrition"}},
+        {"title": "Log calories / macros", "points": 4, "position": 5, "meta": {"type": "nutrition"}},
+    ],
+    "workout_logging": [
+        {"title": "Warm up — 5-10 min",      "points": 3, "position": 0, "meta": {"type": "fitness"}},
+        {"title": "Main workout",             "points": 8, "position": 1, "meta": {"type": "fitness"}},
+        {"title": "Cool down + stretch",      "points": 3, "position": 2, "meta": {"type": "fitness"}},
+        {"title": "Log sets, reps, or time",  "points": 4, "position": 3, "meta": {"type": "fitness"}},
+        {"title": "Hydration check",          "points": 2, "position": 4, "meta": {"type": "fitness"}},
+    ],
+    "focus_time": [
+        {"title": "Set intention — what will you finish?", "points": 5, "position": 0, "meta": {"type": "focus"}},
+        {"title": "Eliminate distractions",               "points": 4, "position": 1, "meta": {"type": "focus"}},
+        {"title": "Focus block 1 — 45-90 min",            "points": 8, "position": 2, "meta": {"type": "focus"}},
+        {"title": "Short break — 5-15 min",               "points": 2, "position": 3, "meta": {"type": "focus"}},
+        {"title": "Focus block 2 — 45 min",               "points": 6, "position": 4, "meta": {"type": "focus"}},
+        {"title": "Capture notes + progress",             "points": 5, "position": 5, "meta": {"type": "focus"}},
+    ],
+    "clean_ritual": [
+        {"title": "Tidy desk + workspace", "points": 5, "position": 0, "meta": {"type": "clean"}},
+        {"title": "Kitchen clean-up",      "points": 5, "position": 1, "meta": {"type": "clean"}},
+        {"title": "Vacuum / sweep floors", "points": 4, "position": 2, "meta": {"type": "clean"}},
+        {"title": "Bathroom wipe-down",    "points": 4, "position": 3, "meta": {"type": "clean"}},
+        {"title": "Do laundry",            "points": 4, "position": 4, "meta": {"type": "clean"}},
+        {"title": "Take out trash",        "points": 3, "position": 5, "meta": {"type": "clean"}},
+    ],
+    "catch_up": [
+        {"title": "Check in with family",                          "points": 8, "position": 0, "meta": {"type": "people"}},
+        {"title": "Reach out to a close friend",                   "points": 8, "position": 1, "meta": {"type": "people"}},
+        {"title": "Follow up on open threads with people",         "points": 5, "position": 2, "meta": {"type": "people"}},
+        {"title": "Reconnect with someone you haven't spoken to",  "points": 5, "position": 3, "meta": {"type": "people"}},
+    ],
 }
 
 
@@ -778,14 +841,15 @@ def create_thread(body: CreateThreadBody):
     user_id = get_dev_user_id()
     db = get_supabase()
 
-    if body.template != "freeform":
+    if body.template not in API_TEMPLATES:
         raise HTTPException(
             status_code=422,
-            detail="POST /threads only supports template='freeform'. Use POST /threads/occurrence for ritual templates.",
+            detail=f"POST /threads only supports on-demand templates: {sorted(API_TEMPLATES)}. Use POST /threads/occurrence for scheduled templates.",
         )
 
     tag = THREAD_TAGS.get(body.template, "#Thread")
     title = body.title or THREAD_TITLES.get(body.template, "New Thread")
+    coach_id = body.coach_id or DEFAULT_COACHES.get(body.template, "arjun")
 
     row = (
         db.table("v2_threads")
@@ -794,13 +858,22 @@ def create_thread(body: CreateThreadBody):
             "template": body.template,
             "tag": tag,
             "title": title,
-            "coach_id": body.coach_id,
+            "coach_id": coach_id,
             "period_key": None,
             "meta": {},
         })
         .execute()
         .data[0]
     )
+
+    # Seed tasks for newly created thread
+    seed = SEED_TASKS.get(body.template, [])
+    thread_id = row["id"]
+    if seed:
+        db.table("v2_tasks").insert(
+            [{**task, "thread_id": thread_id, "user_id": user_id} for task in seed]
+        ).execute()
+
     return _row_to_thread(row, [])
 
 

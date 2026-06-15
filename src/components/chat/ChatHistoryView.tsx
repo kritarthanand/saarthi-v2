@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, Text, View, StyleSheet } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
 import {
@@ -17,10 +17,12 @@ const PAGE = 5;
 export function ChatHistoryView({
   threads,
   onOpenThread,
+  onNew,
   topInset = 52,
 }: {
   threads: ThreadRef[];
   onOpenThread: (id: string) => void;
+  onNew?: () => void;
   topInset?: number;
 }) {
   const [count, setCount] = useState(PAGE);
@@ -41,7 +43,22 @@ export function ChatHistoryView({
 
   const renderHeader = () => (
     <View>
-      <AppHeader title="Chat" right="all threads" topInset={topInset} />
+      <AppHeader
+        title="Chat"
+        topInset={topInset}
+        right={
+          onNew ? (
+            <Pressable
+              onPress={onNew}
+              accessibilityRole="button"
+              accessibilityLabel="New thread"
+              style={styles.newBtn}
+            >
+              <Text style={styles.newBtnText}>+</Text>
+            </Pressable>
+          ) : 'all threads'
+        }
+      />
       <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
         <Text
           style={{
@@ -185,3 +202,15 @@ export function ChatHistoryView({
     />
   );
 }
+
+const styles = StyleSheet.create({
+  newBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: Colors.bgCard,
+    borderColor: Colors.border, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  newBtnText: {
+    fontSize: 20, color: Colors.text, lineHeight: 24, fontWeight: '300',
+  },
+});

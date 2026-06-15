@@ -10,6 +10,7 @@ import { MobileTabBar } from '@/components/shell/MobileTabBar';
 import { PlaceholderView } from '@/components/shell/PlaceholderView';
 import { Sidebar, type TabId } from '@/components/shell/Sidebar';
 import { EmptyDetail } from '@/components/shell/EmptyDetail';
+import { NewThreadModal } from '@/components/thread/NewThreadModal';
 import { ThreadDetail } from '@/components/thread/ThreadDetail';
 import { TodayView } from '@/components/today/TodayView';
 import { FloatingMic } from '@/components/voice/FloatingMic';
@@ -35,6 +36,7 @@ export default function AppRoot() {
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [selectedCoachId, setSelectedCoachId] = useState<CoachId | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [newThreadOpen, setNewThreadOpen] = useState(false);
   const voiceSessionRef = useRef<VoiceSessionHandle>(null);
 
   // ── Live data from API ─────────────────────────────────────────────────────
@@ -75,7 +77,7 @@ export default function AppRoot() {
           <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
         )}
         {tab === 'chat' && (
-          <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
+          <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
         )}
         {tab === 'week' && (
           <PlaceholderView title="Week" subtitle="Trends and stretches across your last 7 days" topInset={phoneTopInset} />
@@ -143,6 +145,19 @@ export default function AppRoot() {
             />
           </View>
         </Modal>
+
+        <Modal
+          visible={newThreadOpen}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setNewThreadOpen(false)}
+        >
+          <NewThreadModal
+            topInset={Math.max(insets.top, 12) + 34}
+            onClose={() => setNewThreadOpen(false)}
+            onCreated={(id) => { setNewThreadOpen(false); setOpenThreadId(id); refresh(); }}
+          />
+        </Modal>
       </View>
     );
   }
@@ -163,7 +178,7 @@ export default function AppRoot() {
         }}
       >
         {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
-        {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
+        {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
         {tab === 'coaches' && (
           <CoachesPane
@@ -236,6 +251,34 @@ export default function AppRoot() {
               onSave={handleSave}
               onClose={() => setVoiceOpen(false)}
               topInset={28}
+            />
+          </Pressable>
+        </Pressable>
+      )}
+
+      {newThreadOpen && (
+        <Pressable
+          accessibilityLabel="Dismiss new thread picker"
+          onPress={() => setNewThreadOpen(false)}
+          style={{
+            position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              width: 440, maxHeight: 760,
+              borderRadius: 28, overflow: 'hidden',
+              borderColor: Colors.borderStrong, borderWidth: 1,
+              backgroundColor: Colors.bg,
+            }}
+          >
+            <NewThreadModal
+              topInset={28}
+              onClose={() => setNewThreadOpen(false)}
+              onCreated={(id) => { setNewThreadOpen(false); setOpenThreadId(id); refresh(); }}
             />
           </Pressable>
         </Pressable>

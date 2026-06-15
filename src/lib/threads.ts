@@ -8,7 +8,12 @@ export type ThreadTemplate =
   | 'morning_ritual'
   | 'evening_ritual'
   | 'weekly_ritual'
-  | 'freeform';
+  | 'freeform'
+  | 'meal_logging'
+  | 'workout_logging'
+  | 'focus_time'
+  | 'clean_ritual'
+  | 'catch_up';
 
 export type Thread = {
   id: string;

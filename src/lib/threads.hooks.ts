@@ -353,6 +353,16 @@ export function useSendMessage(): (
   }, []);
 }
 
+export function useCreateThread(): (template: string) => Promise<Thread> {
+  return useCallback(async (template) => {
+    const w = await apiFetch<WireThread>('/threads', {
+      method: 'POST',
+      body: JSON.stringify({ template }),
+    });
+    return toThread(w);
+  }, []);
+}
+
 export function useUpsertOccurrence(): (
   template: string,
   periodKey: string,

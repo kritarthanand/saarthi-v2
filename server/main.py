@@ -110,14 +110,16 @@ class MessageOut(BaseModel):
 
 
 class CreateThreadBody(BaseModel):
-    template: str  # must be 'freeform'
+    template: str  # must be in API_TEMPLATES (freeform, workout_logging, focus_time)
     title: str | None = None
-    coach_id: str = "arjun"
+    coach_id: str | None = None  # defaults to DEFAULT_COACHES[template]
 
 
 class OccurrenceBody(BaseModel):
     template: str
-    period_key: str  # caller computes and passes; server also validates/recomputes
+    # Optional/ignored — the server computes the authoritative period_key from the
+    # user's timezone + day_start_hour so it always matches the Today filter & cron job.
+    period_key: str | None = None
 
 
 class CreateTaskBody(BaseModel):
@@ -153,35 +155,61 @@ class CreateMessageBody(BaseModel):
 # ── Template metadata ─────────────────────────────────────────────────────────
 
 THREAD_TAGS: dict[str, str] = {
-    "morning_ritual": "#MorningRitual",
-    "evening_ritual": "#EveningRitual",
-    "weekly_ritual": "#WeeklyRitual",
-    "freeform": "#Thread",
+    "morning_ritual":  "#MorningRitual",
+    "evening_ritual":  "#EveningRitual",
+    "weekly_ritual":   "#WeeklyRitual",
+    "freeform":        "#Thread",
+    "meal_logging":    "#MealLog",
+    "workout_logging": "#WorkoutLog",
+    "focus_time":      "#FocusTime",
+    "clean_ritual":    "#CleanRitual",
+    "catch_up":        "#CatchUp",
 }
 
 THREAD_TITLES: dict[str, str] = {
-    "morning_ritual": "Morning Ritual",
-    "evening_ritual": "Evening Ritual",
-    "weekly_ritual": "Weekly Ritual",
-    "freeform": "New Thread",
+    "morning_ritual":  "Morning Ritual",
+    "evening_ritual":  "Evening Ritual",
+    "weekly_ritual":   "Weekly Ritual",
+    "freeform":        "New Thread",
+    "meal_logging":    "Meal Log",
+    "workout_logging": "Workout",
+    "focus_time":      "Focus Session",
+    "clean_ritual":    "Clean Ritual",
+    "catch_up":        "Catch Up",
 }
 
 DEFAULT_COACHES: dict[str, str] = {
-    "morning_ritual": "arjun",
-    "evening_ritual": "arjun",
-    "weekly_ritual": "yudi",
-    "freeform": "arjun",
+    "morning_ritual":  "arjun",
+    "evening_ritual":  "arjun",
+    "weekly_ritual":   "yudi",
+    "freeform":        "arjun",
+    "meal_logging":    "bheem",
+    "workout_logging": "bheem",
+    "focus_time":      "arjun",
+    "clean_ritual":    "yudi",
+    "catch_up":        "yudi",
 }
 
 # Templates that are created by scheduler / occurrence upsert
-SCHEDULED_TEMPLATES = {"morning_ritual", "evening_ritual", "weekly_ritual"}
+SCHEDULED_TEMPLATES = {
+    "morning_ritual", "evening_ritual", "weekly_ritual",
+    "meal_logging", "clean_ritual", "catch_up",
+}
+
+# Templates creatable on-demand via POST /threads (no period_key, no uniqueness constraint)
+API_TEMPLATES = {"freeform", "workout_logging", "focus_time"}
 
 # Template cadence
 TEMPLATE_CADENCE: dict[str, str] = {
-    "morning_ritual": "daily",
-    "evening_ritual": "daily",
-    "weekly_ritual": "weekly",
-    "freeform": "none",
+    "morning_ritual":  "daily",
+    "evening_ritual":  "daily",
+    "weekly_ritual":   "weekly",
+    "freeform":        "none",
+    "meal_logging":    "daily",
+    "workout_logging": "none",
+    "focus_time":      "none",
+    "clean_ritual":    "weekly",
+    "catch_up":        "weekly",
 }
 
 SEED_TASKS: dict[str, list[dict]] = {
@@ -219,6 +247,43 @@ SEED_TASKS: dict[str, list[dict]] = {
         {"title": "Any blocks or challenges to watch for?",           "points": 5, "position": 3, "section": "plan", "meta": {"type": "reflection"}},
     ],
     "freeform": [],
+    "meal_logging": [
+        {"title": "Log breakfast",         "points": 3, "position": 0, "meta": {"type": "nutrition"}},
+        {"title": "Log lunch",             "points": 3, "position": 1, "meta": {"type": "nutrition"}},
+        {"title": "Log dinner",            "points": 3, "position": 2, "meta": {"type": "nutrition"}},
+        {"title": "Log snacks",            "points": 2, "position": 3, "meta": {"type": "nutrition"}},
+        {"title": "Track water intake",    "points": 2, "position": 4, "meta": {"type": "nutrition"}},
+        {"title": "Log calories / macros", "points": 4, "position": 5, "meta": {"type": "nutrition"}},
+    ],
+    "workout_logging": [
+        {"title": "Warm up — 5-10 min",      "points": 3, "position": 0, "meta": {"type": "fitness"}},
+        {"title": "Main workout",             "points": 8, "position": 1, "meta": {"type": "fitness"}},
+        {"title": "Cool down + stretch",      "points": 3, "position": 2, "meta": {"type": "fitness"}},
+        {"title": "Log sets, reps, or time",  "points": 4, "position": 3, "meta": {"type": "fitness"}},
+        {"title": "Hydration check",          "points": 2, "position": 4, "meta": {"type": "fitness"}},
+    ],
+    "focus_time": [
+        {"title": "Set intention — what will you finish?", "points": 5, "position": 0, "meta": {"type": "focus"}},
+        {"title": "Eliminate distractions",               "points": 4, "position": 1, "meta": {"type": "focus"}},
+        {"title": "Focus block 1 — 45-90 min",            "points": 8, "position": 2, "meta": {"type": "focus"}},
+        {"title": "Short break — 5-15 min",               "points": 2, "position": 3, "meta": {"type": "focus"}},
+        {"title": "Focus block 2 — 45 min",               "points": 6, "position": 4, "meta": {"type": "focus"}},
+        {"title": "Capture notes + progress",             "points": 5, "position": 5, "meta": {"type": "focus"}},
+    ],
+    "clean_ritual": [
+        {"title": "Tidy desk + workspace", "points": 5, "position": 0, "meta": {"type": "clean"}},
+        {"title": "Kitchen clean-up",      "points": 5, "position": 1, "meta": {"type": "clean"}},
+        {"title": "Vacuum / sweep floors", "points": 4, "position": 2, "meta": {"type": "clean"}},
+        {"title": "Bathroom wipe-down",    "points": 4, "position": 3, "meta": {"type": "clean"}},
+        {"title": "Do laundry",            "points": 4, "position": 4, "meta": {"type": "clean"}},
+        {"title": "Take out trash",        "points": 3, "position": 5, "meta": {"type": "clean"}},
+    ],
+    "catch_up": [
+        {"title": "Check in with family",                          "points": 8, "position": 0, "meta": {"type": "people"}},
+        {"title": "Reach out to a close friend",                   "points": 8, "position": 1, "meta": {"type": "people"}},
+        {"title": "Follow up on open threads with people",         "points": 5, "position": 2, "meta": {"type": "people"}},
+        {"title": "Reconnect with someone you haven't spoken to",  "points": 5, "position": 3, "meta": {"type": "people"}},
+    ],
 }
 
 
@@ -287,7 +352,7 @@ def _get_user_schedule(db: Client, user_id: str) -> tuple[ZoneInfo, int]:
             db.table("v2_profiles")
             .select("timezone, day_start_hour")
             .eq("id", user_id)
-            .maybeSingle()
+            .maybe_single()
             .execute()
             .data
         )
@@ -673,43 +738,12 @@ def list_threads(template: str | None = None, today: bool = False):
 
     tz, day_start_hour = _get_user_schedule(db, user_id)
 
-    # Lazy-upsert today's / this-week's occurrence for scheduled templates
+    # NOTE: GET is read-only. Today's / this-week's scheduled occurrences are
+    # created by the cron reset jobs and by explicit POST /threads/occurrence
+    # (the "+" picker). We deliberately do NOT lazy-upsert here — doing so would
+    # instantly resurrect a ritual the user just deleted, since past occurrences
+    # of the same template would trigger re-creation on the next list call.
     thread_ids = [t["id"] for t in threads]
-    for t in threads:
-        cadence = TEMPLATE_CADENCE.get(t["template"], "none")
-        if cadence == "daily":
-            pk = _daily_period_key(now, tz, day_start_hour)
-            if t.get("period_key") != pk:
-                # Check if today's occurrence already exists for this template
-                existing = (
-                    db.table("v2_threads")
-                    .select("id")
-                    .eq("user_id", user_id)
-                    .eq("template", t["template"])
-                    .eq("period_key", pk)
-                    .execute()
-                    .data
-                )
-                if not existing:
-                    new_row, _ = _upsert_occurrence(db, user_id, t["template"], pk)
-                    threads.append(new_row)
-                    thread_ids.append(new_row["id"])
-        elif cadence == "weekly":
-            pk = _weekly_period_key(now, tz, day_start_hour)
-            if t.get("period_key") != pk:
-                existing = (
-                    db.table("v2_threads")
-                    .select("id")
-                    .eq("user_id", user_id)
-                    .eq("template", t["template"])
-                    .eq("period_key", pk)
-                    .execute()
-                    .data
-                )
-                if not existing:
-                    new_row, _ = _upsert_occurrence(db, user_id, t["template"], pk)
-                    threads.append(new_row)
-                    thread_ids.append(new_row["id"])
 
     # Fetch all tasks in one query; build per-thread map
     all_tasks: list[dict] = []
@@ -738,7 +772,8 @@ def list_threads(template: str | None = None, today: bool = False):
                 filtered.append(thread_out)
             elif cadence == "weekly" and thread_row.get("period_key") == weekly_pk:
                 filtered.append(thread_out)
-            # freeform (cadence == 'none') is excluded from today filter
+            elif cadence == "none" and _is_today(thread_row.get("created_at", ""), tz, day_start_hour):
+                filtered.append(thread_out)
         return filtered
 
     return out
@@ -756,7 +791,18 @@ def upsert_occurrence(body: OccurrenceBody, response: Response):
             detail=f"template '{body.template}' is not a scheduled template",
         )
 
-    row, created = _upsert_occurrence(db, user_id, body.template, body.period_key)
+    # Compute the authoritative period_key from the user's schedule so it always
+    # matches the Today filter and the cron-driven reset jobs. Trusting a
+    # client-supplied key caused timezone-mismatched duplicate occurrences.
+    tz, day_start_hour = _get_user_schedule(db, user_id)
+    now = datetime.now(timezone.utc)
+    cadence = TEMPLATE_CADENCE.get(body.template, "daily")
+    if cadence == "weekly":
+        period_key = _weekly_period_key(now, tz, day_start_hour)
+    else:
+        period_key = _daily_period_key(now, tz, day_start_hour)
+
+    row, created = _upsert_occurrence(db, user_id, body.template, period_key)
 
     # Fetch tasks for this thread to compute counts
     tasks = (
@@ -773,19 +819,73 @@ def upsert_occurrence(body: OccurrenceBody, response: Response):
     return {"thread": thread_out, "created": created}
 
 
+DEFAULT_AUTO_CREATE_TEMPLATES = ["morning_ritual", "evening_ritual"]
+
+
+@app.post("/threads/ensure-today")
+def ensure_today() -> dict:
+    """Ensure the user's opt-in scheduled templates exist for the current period.
+
+    Driven by v2_profiles.auto_create_templates. Idempotent and delete-aware:
+    once a template has been auto-created for the current period_key (tracked in
+    auto_create_marks), it is NOT recreated again that period — so a manual
+    delete sticks until the next day/week rolls over. The client calls this on
+    app load.
+    """
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    prof = (
+        db.table("v2_profiles")
+        .select("auto_create_templates, auto_create_marks, timezone, day_start_hour")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    templates = (prof or {}).get("auto_create_templates") or DEFAULT_AUTO_CREATE_TEMPLATES
+    marks = dict((prof or {}).get("auto_create_marks") or {})
+    tz, day_start_hour = _row_to_schedule(prof)
+    now = datetime.now(timezone.utc)
+
+    created: list[str] = []
+    new_marks = dict(marks)
+    for template in templates:
+        if template not in SCHEDULED_TEMPLATES:
+            continue  # on-demand templates aren't idempotent — never auto-create
+        cadence = TEMPLATE_CADENCE.get(template, "daily")
+        if cadence == "weekly":
+            period_key = _weekly_period_key(now, tz, day_start_hour)
+        else:
+            period_key = _daily_period_key(now, tz, day_start_hour)
+        # Already handled this period (created earlier, or created-then-deleted).
+        if new_marks.get(template) == period_key:
+            continue
+        _, was_created = _upsert_occurrence(db, user_id, template, period_key)
+        new_marks[template] = period_key
+        if was_created:
+            created.append(template)
+
+    if new_marks != marks and prof is not None:
+        db.table("v2_profiles").update({"auto_create_marks": new_marks}).eq("id", user_id).execute()
+
+    return {"ensured": [t for t in templates if t in SCHEDULED_TEMPLATES], "created": created}
+
+
 @app.post("/threads", response_model=ThreadOut, status_code=201)
 def create_thread(body: CreateThreadBody):
     user_id = get_dev_user_id()
     db = get_supabase()
 
-    if body.template != "freeform":
+    if body.template not in API_TEMPLATES:
         raise HTTPException(
             status_code=422,
-            detail="POST /threads only supports template='freeform'. Use POST /threads/occurrence for ritual templates.",
+            detail=f"POST /threads only supports on-demand templates: {sorted(API_TEMPLATES)}. Use POST /threads/occurrence for scheduled templates.",
         )
 
     tag = THREAD_TAGS.get(body.template, "#Thread")
     title = body.title or THREAD_TITLES.get(body.template, "New Thread")
+    coach_id = body.coach_id or DEFAULT_COACHES.get(body.template, "arjun")
 
     row = (
         db.table("v2_threads")
@@ -794,14 +894,32 @@ def create_thread(body: CreateThreadBody):
             "template": body.template,
             "tag": tag,
             "title": title,
-            "coach_id": body.coach_id,
+            "coach_id": coach_id,
             "period_key": None,
             "meta": {},
         })
         .execute()
         .data[0]
     )
+
+    # Seed tasks for newly created thread
+    seed = SEED_TASKS.get(body.template, [])
+    thread_id = row["id"]
+    if seed:
+        db.table("v2_tasks").insert(
+            [{**task, "thread_id": thread_id, "user_id": user_id} for task in seed]
+        ).execute()
+
     return _row_to_thread(row, [])
+
+
+@app.delete("/threads/{thread_id}", status_code=204)
+def delete_thread(thread_id: str):
+    user_id = get_dev_user_id()
+    db = get_supabase()
+    _assert_thread_owner(db, thread_id, user_id)
+    # Tasks and messages are cascade-deleted by the DB FK constraints.
+    db.table("v2_threads").delete().eq("id", thread_id).eq("user_id", user_id).execute()
 
 
 @app.get("/threads/{thread_id}")

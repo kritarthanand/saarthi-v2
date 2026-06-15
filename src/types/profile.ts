@@ -40,6 +40,8 @@ export interface UserProfile {
   day_start_hour: number;
   morning_deadline_hour: number;
   evening_start_hour: number;
+  // Scheduled templates to auto-create each day/week when the app opens.
+  auto_create_templates: string[];
   updated_at: string;
 }
 

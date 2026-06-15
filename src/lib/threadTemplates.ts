@@ -4,6 +4,11 @@ import { MorningRitualSummary } from '@/components/thread/MorningRitualSummary';
 import { EveningRitualSummary } from '@/components/thread/EveningRitualSummary';
 import { WeeklyRitualSummary } from '@/components/thread/WeeklyRitualSummary';
 import { FreeformSummaryView } from '@/components/thread/FreeformSummaryView';
+import { MealLoggingSummary } from '@/components/thread/MealLoggingSummary';
+import { WorkoutLoggingSummary } from '@/components/thread/WorkoutLoggingSummary';
+import { FocusTimeSummary } from '@/components/thread/FocusTimeSummary';
+import { CleanRitualSummary } from '@/components/thread/CleanRitualSummary';
+import { CatchUpSummary } from '@/components/thread/CatchUpSummary';
 
 import type { CoachId, Thread, Task, TaskStatus, ThreadMessage } from './threads';
 
@@ -116,6 +121,93 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateConfig> = {
     carryOver: false,
     seedTasks: [],
     SummaryView: FreeformSummaryView,
+  },
+
+  meal_logging: {
+    cadence: 'daily',
+    creation: 'scheduled',
+    tag: '#MealLog',
+    title: 'Meal Log',
+    defaultCoach: 'bheem',
+    carryOver: false,
+    seedTasks: [
+      { title: 'Log breakfast',         points: 3, meta: { type: 'nutrition' } },
+      { title: 'Log lunch',             points: 3, meta: { type: 'nutrition' } },
+      { title: 'Log dinner',            points: 3, meta: { type: 'nutrition' } },
+      { title: 'Log snacks',            points: 2, meta: { type: 'nutrition' } },
+      { title: 'Track water intake',    points: 2, meta: { type: 'nutrition' } },
+      { title: 'Log calories / macros', points: 4, meta: { type: 'nutrition' } },
+    ],
+    SummaryView: MealLoggingSummary,
+  },
+
+  workout_logging: {
+    cadence: 'none',
+    creation: 'api',
+    tag: '#WorkoutLog',
+    title: 'Workout',
+    defaultCoach: 'bheem',
+    carryOver: false,
+    seedTasks: [
+      { title: 'Warm up — 5-10 min',           points: 3, meta: { type: 'fitness' } },
+      { title: 'Main workout',                  points: 8, meta: { type: 'fitness' } },
+      { title: 'Cool down + stretch',           points: 3, meta: { type: 'fitness' } },
+      { title: 'Log sets, reps, or time',       points: 4, meta: { type: 'fitness' } },
+      { title: 'Hydration check',               points: 2, meta: { type: 'fitness' } },
+    ],
+    SummaryView: WorkoutLoggingSummary,
+  },
+
+  focus_time: {
+    cadence: 'none',
+    creation: 'api',
+    tag: '#FocusTime',
+    title: 'Focus Session',
+    defaultCoach: 'arjun',
+    carryOver: false,
+    seedTasks: [
+      { title: 'Set intention — what will you finish?', points: 5, meta: { type: 'focus' } },
+      { title: 'Eliminate distractions',                points: 4, meta: { type: 'focus' } },
+      { title: 'Focus block 1 — 45-90 min',            points: 8, meta: { type: 'focus' } },
+      { title: 'Short break — 5-15 min',               points: 2, meta: { type: 'focus' } },
+      { title: 'Focus block 2 — 45 min',               points: 6, meta: { type: 'focus' } },
+      { title: 'Capture notes + progress',             points: 5, meta: { type: 'focus' } },
+    ],
+    SummaryView: FocusTimeSummary,
+  },
+
+  clean_ritual: {
+    cadence: 'weekly',
+    creation: 'scheduled',
+    tag: '#CleanRitual',
+    title: 'Clean Ritual',
+    defaultCoach: 'yudi',
+    carryOver: false,
+    seedTasks: [
+      { title: 'Tidy desk + workspace', points: 5, meta: { type: 'clean' } },
+      { title: 'Kitchen clean-up',      points: 5, meta: { type: 'clean' } },
+      { title: 'Vacuum / sweep floors', points: 4, meta: { type: 'clean' } },
+      { title: 'Bathroom wipe-down',    points: 4, meta: { type: 'clean' } },
+      { title: 'Do laundry',            points: 4, meta: { type: 'clean' } },
+      { title: 'Take out trash',        points: 3, meta: { type: 'clean' } },
+    ],
+    SummaryView: CleanRitualSummary,
+  },
+
+  catch_up: {
+    cadence: 'weekly',
+    creation: 'scheduled',
+    tag: '#CatchUp',
+    title: 'Catch Up',
+    defaultCoach: 'yudi',
+    carryOver: true,
+    seedTasks: [
+      { title: 'Check in with family',                         points: 8, meta: { type: 'people' } },
+      { title: 'Reach out to a close friend',                  points: 8, meta: { type: 'people' } },
+      { title: 'Follow up on open threads with people',        points: 5, meta: { type: 'people' } },
+      { title: 'Reconnect with someone you haven\'t spoken to', points: 5, meta: { type: 'people' } },
+    ],
+    SummaryView: CatchUpSummary,
   },
 };
 

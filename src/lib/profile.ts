@@ -11,6 +11,7 @@ export const DEFAULT_PROFILE_VALUES: Omit<UserProfile, 'id' | 'updated_at'> = {
   day_start_hour: 0,
   morning_deadline_hour: 12,
   evening_start_hour: 17,
+  auto_create_templates: ['morning_ritual', 'evening_ritual'],
 };
 
 async function getUserId(): Promise<string | null> {

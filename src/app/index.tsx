@@ -10,13 +10,14 @@ import { MobileTabBar } from '@/components/shell/MobileTabBar';
 import { PlaceholderView } from '@/components/shell/PlaceholderView';
 import { Sidebar, type TabId } from '@/components/shell/Sidebar';
 import { EmptyDetail } from '@/components/shell/EmptyDetail';
+import { NewThreadModal } from '@/components/thread/NewThreadModal';
 import { ThreadDetail } from '@/components/thread/ThreadDetail';
 import { TodayView } from '@/components/today/TodayView';
 import { FloatingMic } from '@/components/voice/FloatingMic';
 import { VoiceSession, type VoiceSavePayload, type VoiceSessionHandle } from '@/components/voice/VoiceSession';
 import { COACHES_BY_ID, type CoachId } from '@/constants/pandavas';
 import { Colors, threadTheme } from '@/constants/theme';
-import { useThreads } from '@/lib/threads.hooks';
+import { useEnsureToday, useThreads } from '@/lib/threads.hooks';
 
 type DeviceMode = 'phone' | 'ipad' | 'web';
 
@@ -35,10 +36,24 @@ export default function AppRoot() {
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [selectedCoachId, setSelectedCoachId] = useState<CoachId | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [newThreadOpen, setNewThreadOpen] = useState(false);
   const voiceSessionRef = useRef<VoiceSessionHandle>(null);
 
   // ── Live data from API ─────────────────────────────────────────────────────
   const { threads, refresh } = useThreads({ today: true });
+  const ensureToday = useEnsureToday();
+
+  // On first load, ensure the user's opt-in scheduled templates (e.g. morning +
+  // evening ritual) exist for today, then refresh. Runs once per app launch;
+  // the server tracks per-period marks so a deleted ritual won't resurrect.
+  const ensuredRef = useRef(false);
+  useEffect(() => {
+    if (ensuredRef.current) return;
+    ensuredRef.current = true;
+    ensureToday()
+      .then(() => refresh())
+      .catch((e) => console.warn('ensure-today failed', e));
+  }, [ensureToday, refresh]);
 
   // First-load: auto-open morning ritual on iPad/web so the detail pane isn't empty.
   const autoOpenedRef = useRef(false);
@@ -72,10 +87,10 @@ export default function AppRoot() {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
         {tab === 'today' && (
-          <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
+          <TodayView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
         )}
         {tab === 'chat' && (
-          <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
+          <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
         )}
         {tab === 'week' && (
           <PlaceholderView title="Week" subtitle="Trends and stretches across your last 7 days" topInset={phoneTopInset} />
@@ -143,6 +158,19 @@ export default function AppRoot() {
             />
           </View>
         </Modal>
+
+        <Modal
+          visible={newThreadOpen}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setNewThreadOpen(false)}
+        >
+          <NewThreadModal
+            topInset={Math.max(insets.top, 12) + 34}
+            onClose={() => setNewThreadOpen(false)}
+            onCreated={(id) => { setNewThreadOpen(false); setTab('today'); setOpenThreadId(id); refresh(); }}
+          />
+        </Modal>
       </View>
     );
   }
@@ -162,8 +190,8 @@ export default function AppRoot() {
           overflow: 'hidden', backgroundColor: Colors.bg,
         }}
       >
-        {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
-        {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
+        {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
+        {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
         {tab === 'coaches' && (
           <CoachesPane
@@ -236,6 +264,34 @@ export default function AppRoot() {
               onSave={handleSave}
               onClose={() => setVoiceOpen(false)}
               topInset={28}
+            />
+          </Pressable>
+        </Pressable>
+      )}
+
+      {newThreadOpen && (
+        <Pressable
+          accessibilityLabel="Dismiss new thread picker"
+          onPress={() => setNewThreadOpen(false)}
+          style={{
+            position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              width: 440, maxHeight: 760,
+              borderRadius: 28, overflow: 'hidden',
+              borderColor: Colors.borderStrong, borderWidth: 1,
+              backgroundColor: Colors.bg,
+            }}
+          >
+            <NewThreadModal
+              topInset={28}
+              onClose={() => setNewThreadOpen(false)}
+              onCreated={(id) => { setNewThreadOpen(false); setTab('today'); setOpenThreadId(id); refresh(); }}
             />
           </Pressable>
         </Pressable>

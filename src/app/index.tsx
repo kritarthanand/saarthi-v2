@@ -17,7 +17,7 @@ import { FloatingMic } from '@/components/voice/FloatingMic';
 import { VoiceSession, type VoiceSavePayload, type VoiceSessionHandle } from '@/components/voice/VoiceSession';
 import { COACHES_BY_ID, type CoachId } from '@/constants/pandavas';
 import { Colors, threadTheme } from '@/constants/theme';
-import { useThreads } from '@/lib/threads.hooks';
+import { useEnsureToday, useThreads } from '@/lib/threads.hooks';
 
 type DeviceMode = 'phone' | 'ipad' | 'web';
 
@@ -41,6 +41,19 @@ export default function AppRoot() {
 
   // ── Live data from API ─────────────────────────────────────────────────────
   const { threads, refresh } = useThreads({ today: true });
+  const ensureToday = useEnsureToday();
+
+  // On first load, ensure the user's opt-in scheduled templates (e.g. morning +
+  // evening ritual) exist for today, then refresh. Runs once per app launch;
+  // the server tracks per-period marks so a deleted ritual won't resurrect.
+  const ensuredRef = useRef(false);
+  useEffect(() => {
+    if (ensuredRef.current) return;
+    ensuredRef.current = true;
+    ensureToday()
+      .then(() => refresh())
+      .catch((e) => console.warn('ensure-today failed', e));
+  }, [ensureToday, refresh]);
 
   // First-load: auto-open morning ritual on iPad/web so the detail pane isn't empty.
   const autoOpenedRef = useRef(false);

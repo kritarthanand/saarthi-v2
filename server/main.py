@@ -352,7 +352,7 @@ def _get_user_schedule(db: Client, user_id: str) -> tuple[ZoneInfo, int]:
             db.table("v2_profiles")
             .select("timezone, day_start_hour")
             .eq("id", user_id)
-            .maybeSingle()
+            .maybe_single()
             .execute()
             .data
         )
@@ -817,6 +817,59 @@ def upsert_occurrence(body: OccurrenceBody, response: Response):
     if created:
         response.status_code = 201
     return {"thread": thread_out, "created": created}
+
+
+DEFAULT_AUTO_CREATE_TEMPLATES = ["morning_ritual", "evening_ritual"]
+
+
+@app.post("/threads/ensure-today")
+def ensure_today() -> dict:
+    """Ensure the user's opt-in scheduled templates exist for the current period.
+
+    Driven by v2_profiles.auto_create_templates. Idempotent and delete-aware:
+    once a template has been auto-created for the current period_key (tracked in
+    auto_create_marks), it is NOT recreated again that period — so a manual
+    delete sticks until the next day/week rolls over. The client calls this on
+    app load.
+    """
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    prof = (
+        db.table("v2_profiles")
+        .select("auto_create_templates, auto_create_marks, timezone, day_start_hour")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    templates = (prof or {}).get("auto_create_templates") or DEFAULT_AUTO_CREATE_TEMPLATES
+    marks = dict((prof or {}).get("auto_create_marks") or {})
+    tz, day_start_hour = _row_to_schedule(prof)
+    now = datetime.now(timezone.utc)
+
+    created: list[str] = []
+    new_marks = dict(marks)
+    for template in templates:
+        if template not in SCHEDULED_TEMPLATES:
+            continue  # on-demand templates aren't idempotent — never auto-create
+        cadence = TEMPLATE_CADENCE.get(template, "daily")
+        if cadence == "weekly":
+            period_key = _weekly_period_key(now, tz, day_start_hour)
+        else:
+            period_key = _daily_period_key(now, tz, day_start_hour)
+        # Already handled this period (created earlier, or created-then-deleted).
+        if new_marks.get(template) == period_key:
+            continue
+        _, was_created = _upsert_occurrence(db, user_id, template, period_key)
+        new_marks[template] = period_key
+        if was_created:
+            created.append(template)
+
+    if new_marks != marks and prof is not None:
+        db.table("v2_profiles").update({"auto_create_marks": new_marks}).eq("id", user_id).execute()
+
+    return {"ensured": [t for t in templates if t in SCHEDULED_TEMPLATES], "created": created}
 
 
 @app.post("/threads", response_model=ThreadOut, status_code=201)

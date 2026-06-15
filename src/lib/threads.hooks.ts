@@ -354,6 +354,14 @@ export function useSendMessage(): (
   }, []);
 }
 
+// Ensure the user's opt-in scheduled templates exist for today/this week.
+// Server-side, idempotent, and delete-aware. Call on app load.
+export function useEnsureToday(): () => Promise<void> {
+  return useCallback(async () => {
+    await apiFetch<void>('/threads/ensure-today', { method: 'POST' });
+  }, []);
+}
+
 export function useDeleteThread(): (threadId: string) => Promise<void> {
   return useCallback(async (threadId) => {
     await apiFetch<void>(`/threads/${threadId}`, { method: 'DELETE' });

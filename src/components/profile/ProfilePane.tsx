@@ -18,8 +18,10 @@ import {
   StatusBadge,
   type SaveStatus,
 } from '@/components/settings';
-import { Colors } from '@/constants/theme';
+import { Colors, threadTheme } from '@/constants/theme';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
+import { TEMPLATE_REGISTRY } from '@/lib/threadTemplates';
+import { useEnsureToday } from '@/lib/threads.hooks';
 import {
   DEFAULT_CHAT_MODEL_OPTIONS,
   getChatModelOptions,
@@ -84,6 +86,18 @@ const TIMEZONES = [
   { label: 'Sydney',    value: 'Australia/Sydney' },
 ];
 
+// Scheduled (occurrence-based) templates that can be auto-created each period.
+// On-demand templates (workout, focus, freeform) are excluded — they aren't
+// idempotent, so auto-creating them daily would pile up duplicates.
+const AUTO_CREATE_TEMPLATES = [
+  'morning_ritual',
+  'evening_ritual',
+  'weekly_ritual',
+  'meal_logging',
+  'clean_ritual',
+  'catch_up',
+] as const;
+
 const DAY_START_HOURS        = [0, 1, 2, 3, 4, 5, 6, 7];
 const MORNING_DEADLINE_HOURS = [9, 10, 11, 12, 13, 14];
 const EVENING_START_HOURS    = [17, 18, 19, 20, 21, 22, 23];
@@ -113,6 +127,22 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
 
   const profileRef = useRef<UserProfile | null>(null);
   profileRef.current = profile;
+
+  const ensureToday = useEnsureToday();
+
+  async function toggleAutoCreate(template: string) {
+    const current =
+      profileRef.current?.auto_create_templates ??
+      DEFAULT_PROFILE_VALUES.auto_create_templates;
+    const next = current.includes(template)
+      ? current.filter((t) => t !== template)
+      : [...current, template];
+    await savePatch({ auto_create_templates: next }, 'auto_create_templates');
+    // Enabling a template should create today's occurrence right away.
+    if (!current.includes(template)) {
+      ensureToday().catch((e) => console.warn('ensure-today failed', e));
+    }
+  }
 
   const proxyErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -414,6 +444,66 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
               />
             </SettingsRow>
           </View>
+        </SettingsSection>
+
+        {/* ── Daily threads ────────────────────────────────────────────── */}
+        <SettingsSection title="Daily threads">
+          <SettingsRow
+            label="Auto-create on open"
+            hint="When you open the app each day, these threads are created automatically if today's isn't there yet. Deleting one keeps it gone until the next day."
+          >
+            <View className="gap-2">
+              {AUTO_CREATE_TEMPLATES.map((template) => {
+                const config = TEMPLATE_REGISTRY[template];
+                if (!config) return null;
+                const selected =
+                  (profile?.auto_create_templates ?? []).includes(template);
+                const color = threadTheme(config.tag).color;
+                const cadence = config.cadence === 'weekly' ? 'weekly' : 'daily';
+                return (
+                  <TouchableOpacity
+                    key={template}
+                    disabled={!interactive}
+                    onPress={() => toggleAutoCreate(template)}
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: selected, disabled: !interactive }}
+                    accessibilityLabel={config.title}
+                    className={`flex-row items-center rounded-2xl border p-3 ${
+                      selected ? 'border-accent bg-accent-dim' : 'border-line bg-bg-elev'
+                    } ${!interactive ? 'opacity-50' : ''}`}
+                  >
+                    <View
+                      style={{ backgroundColor: color }}
+                      className="mr-3 h-2.5 w-2.5 rounded-full"
+                    />
+                    <View className="flex-1">
+                      <Text
+                        className={`text-sm font-semibold ${
+                          selected ? 'text-fg' : 'text-fg-dim'
+                        }`}
+                      >
+                        {config.title}
+                      </Text>
+                      <Text className="text-fg-faint text-xs">{cadence}</Text>
+                    </View>
+                    <View
+                      style={{
+                        borderColor: selected ? color : Colors.borderStrong,
+                        backgroundColor: selected ? color : 'transparent',
+                      }}
+                      className="h-5 w-5 items-center justify-center rounded-full border"
+                    >
+                      {selected ? (
+                        <Text style={{ color: Colors.bg }} className="text-xs font-bold">
+                          ✓
+                        </Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </SettingsRow>
         </SettingsSection>
 
         {/* ── Server ───────────────────────────────────────────────────── */}

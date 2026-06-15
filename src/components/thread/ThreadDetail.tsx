@@ -182,7 +182,15 @@ export function ThreadDetail({
             {thread.title}
           </Text>
         </View>
-        {embedded ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="More options"
+          onPress={() => setOptionsOpen(true)}
+          style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <DotsIcon size={20} />
+        </Pressable>
+        {embedded && (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close thread"
@@ -195,15 +203,6 @@ export function ThreadDetail({
             }}
           >
             <Text style={{ color: Colors.textDim, fontSize: 18, fontWeight: '500', lineHeight: 20 }}>×</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="More options"
-            onPress={() => setOptionsOpen(true)}
-            style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <DotsIcon size={20} />
           </Pressable>
         )}
       </View>

@@ -23,24 +23,6 @@ const CADENCE_LABEL: Record<string, string> = {
   none:   'on-demand',
 };
 
-function dailyPeriodKey(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function weeklyPeriodKey(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  const thu = new Date(d);
-  thu.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const jan4 = new Date(thu.getFullYear(), 0, 4);
-  const weekNum =
-    1 +
-    Math.round(
-      ((thu.getTime() - jan4.getTime()) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7,
-    );
-  return `${thu.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
-}
-
 export function NewThreadModal({
   onClose,
   onCreated,
@@ -51,6 +33,7 @@ export function NewThreadModal({
   topInset?: number;
 }) {
   const [creating, setCreating] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const createThread = useCreateThread();
   const upsertOccurrence = useUpsertOccurrence();
 
@@ -60,19 +43,20 @@ export function NewThreadModal({
     if (!config) return;
 
     setCreating(templateKey);
+    setErrorMsg(null);
     try {
       let threadId: string;
       if (config.creation === 'api') {
         const thread = await createThread(templateKey);
         threadId = thread.id;
       } else {
-        const periodKey = config.cadence === 'weekly' ? weeklyPeriodKey() : dailyPeriodKey();
-        const { thread } = await upsertOccurrence(templateKey, periodKey);
+        const { thread } = await upsertOccurrence(templateKey);
         threadId = thread.id;
       }
       onCreated(threadId);
     } catch (err) {
-      console.error('Failed to create thread:', err);
+      const msg = err instanceof Error ? err.message : 'Something went wrong';
+      setErrorMsg(msg);
       setCreating(null);
     }
   };
@@ -108,6 +92,20 @@ export function NewThreadModal({
           <Text style={{ fontSize: 18, color: Colors.textDim, lineHeight: 22 }}>×</Text>
         </Pressable>
       </View>
+
+      {/* Error banner */}
+      {errorMsg && (
+        <View
+          style={{
+            marginHorizontal: 16, marginTop: 12,
+            padding: 12, borderRadius: 10,
+            backgroundColor: 'rgba(255,77,77,0.12)',
+            borderColor: 'rgba(255,77,77,0.3)', borderWidth: 1,
+          }}
+        >
+          <Text style={{ fontSize: 13, color: '#FF4D4D', lineHeight: 18 }}>{errorMsg}</Text>
+        </View>
+      )}
 
       {/* Template list */}
       <ScrollView

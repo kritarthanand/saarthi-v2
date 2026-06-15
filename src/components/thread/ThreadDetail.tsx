@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
 import { TEMPLATE_REGISTRY } from '@/lib/threadTemplates';
 import type { Task, TaskStatus, Thread, ThreadMessage } from '@/lib/threads';
-import { apiFetch, usePatchTask, useSendMessage, useThread } from '@/lib/threads.hooks';
+import { apiFetch, useDeleteThread, usePatchTask, useSendMessage, useThread } from '@/lib/threads.hooks';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
 import { BackIcon, DotsIcon } from '../icons';
@@ -31,6 +31,7 @@ export function ThreadDetail({
 }) {
   const [tab, setTab] = useState<'summary' | 'chat'>('summary');
   const [sentCount, setSentCount] = useState(0);
+  const [optionsOpen, setOptionsOpen] = useState(false);
 
   const { thread, tasks, messages, refresh } = useThread(threadId);
 
@@ -55,6 +56,30 @@ export function ThreadDetail({
 
   const patchTask = usePatchTask();
   const sendMessage = useSendMessage();
+  const deleteThread = useDeleteThread();
+
+  const handleDelete = useCallback(() => {
+    setOptionsOpen(false);
+    Alert.alert(
+      'Delete thread?',
+      `"${thread?.tag ?? 'This thread'}" and all its tasks and messages will be permanently deleted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteThread(threadId);
+              onClose();
+            } catch (e) {
+              Alert.alert('Error', 'Could not delete thread. Try again.');
+            }
+          },
+        },
+      ],
+    );
+  }, [deleteThread, threadId, thread?.tag, onClose]);
 
   const handleToggleTask = useCallback(
     async (taskId: string, status: TaskStatus) => {
@@ -175,6 +200,7 @@ export function ThreadDetail({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="More options"
+            onPress={() => setOptionsOpen(true)}
             style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
           >
             <DotsIcon size={20} />
@@ -228,6 +254,42 @@ export function ThreadDetail({
           );
         })}
       </View>
+
+      {/* Options popover */}
+      {optionsOpen && (
+        <Pressable
+          onPress={() => setOptionsOpen(false)}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute', top: topInset + 44, right: 12,
+              backgroundColor: Colors.bgElev,
+              borderColor: Colors.border, borderWidth: 1,
+              borderRadius: 14,
+              minWidth: 200,
+              shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+              elevation: 8,
+            }}
+          >
+            <Pressable
+              onPress={handleDelete}
+              accessibilityRole="button"
+              accessibilityLabel="Delete thread"
+              style={({ pressed }) => ({
+                flexDirection: 'row', alignItems: 'center', gap: 10,
+                paddingVertical: 13, paddingHorizontal: 14,
+                backgroundColor: pressed ? 'rgba(255,77,77,0.08)' : 'transparent',
+                borderRadius: 14,
+              })}
+            >
+              <Text style={{ fontSize: 16 }}>🗑</Text>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.danger }}>Delete thread</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      )}
 
       {/* Content */}
       {useNewChat ? (

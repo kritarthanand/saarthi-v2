@@ -117,7 +117,9 @@ class CreateThreadBody(BaseModel):
 
 class OccurrenceBody(BaseModel):
     template: str
-    period_key: str  # caller computes and passes; server also validates/recomputes
+    # Optional/ignored — the server computes the authoritative period_key from the
+    # user's timezone + day_start_hour so it always matches the Today filter & cron job.
+    period_key: str | None = None
 
 
 class CreateTaskBody(BaseModel):
@@ -801,7 +803,8 @@ def list_threads(template: str | None = None, today: bool = False):
                 filtered.append(thread_out)
             elif cadence == "weekly" and thread_row.get("period_key") == weekly_pk:
                 filtered.append(thread_out)
-            # freeform (cadence == 'none') is excluded from today filter
+            elif cadence == "none" and _is_today(thread_row.get("created_at", ""), tz, day_start_hour):
+                filtered.append(thread_out)
         return filtered
 
     return out
@@ -819,7 +822,18 @@ def upsert_occurrence(body: OccurrenceBody, response: Response):
             detail=f"template '{body.template}' is not a scheduled template",
         )
 
-    row, created = _upsert_occurrence(db, user_id, body.template, body.period_key)
+    # Compute the authoritative period_key from the user's schedule so it always
+    # matches the Today filter and the cron-driven reset jobs. Trusting a
+    # client-supplied key caused timezone-mismatched duplicate occurrences.
+    tz, day_start_hour = _get_user_schedule(db, user_id)
+    now = datetime.now(timezone.utc)
+    cadence = TEMPLATE_CADENCE.get(body.template, "daily")
+    if cadence == "weekly":
+        period_key = _weekly_period_key(now, tz, day_start_hour)
+    else:
+        period_key = _daily_period_key(now, tz, day_start_hour)
+
+    row, created = _upsert_occurrence(db, user_id, body.template, period_key)
 
     # Fetch tasks for this thread to compute counts
     tasks = (
@@ -875,6 +889,15 @@ def create_thread(body: CreateThreadBody):
         ).execute()
 
     return _row_to_thread(row, [])
+
+
+@app.delete("/threads/{thread_id}", status_code=204)
+def delete_thread(thread_id: str):
+    user_id = get_dev_user_id()
+    db = get_supabase()
+    _assert_thread_owner(db, thread_id, user_id)
+    # Tasks and messages are cascade-deleted by the DB FK constraints.
+    db.table("v2_threads").delete().eq("id", thread_id).eq("user_id", user_id).execute()
 
 
 @app.get("/threads/{thread_id}")

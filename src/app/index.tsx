@@ -74,7 +74,7 @@ export default function AppRoot() {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
         {tab === 'today' && (
-          <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={phoneTopInset} />
+          <TodayView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
         )}
         {tab === 'chat' && (
           <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
@@ -155,7 +155,7 @@ export default function AppRoot() {
           <NewThreadModal
             topInset={Math.max(insets.top, 12) + 34}
             onClose={() => setNewThreadOpen(false)}
-            onCreated={(id) => { setNewThreadOpen(false); setOpenThreadId(id); refresh(); }}
+            onCreated={(id) => { setNewThreadOpen(false); setTab('today'); setOpenThreadId(id); refresh(); }}
           />
         </Modal>
       </View>
@@ -177,7 +177,7 @@ export default function AppRoot() {
           overflow: 'hidden', backgroundColor: Colors.bg,
         }}
       >
-        {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} topInset={28} />}
+        {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
         {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
         {tab === 'coaches' && (
@@ -278,7 +278,7 @@ export default function AppRoot() {
             <NewThreadModal
               topInset={28}
               onClose={() => setNewThreadOpen(false)}
-              onCreated={(id) => { setNewThreadOpen(false); setOpenThreadId(id); refresh(); }}
+              onCreated={(id) => { setNewThreadOpen(false); setTab('today'); setOpenThreadId(id); refresh(); }}
             />
           </Pressable>
         </Pressable>

@@ -115,6 +115,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     const msg = typeof detail === 'string' ? detail : (typeof detail === 'object' && detail !== null && 'error' in detail ? String((detail as { error: unknown }).error) : `HTTP ${res.status}`);
     throw Object.assign(new Error(msg), { status: res.status, body, detail });
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -353,6 +354,12 @@ export function useSendMessage(): (
   }, []);
 }
 
+export function useDeleteThread(): (threadId: string) => Promise<void> {
+  return useCallback(async (threadId) => {
+    await apiFetch<void>(`/threads/${threadId}`, { method: 'DELETE' });
+  }, []);
+}
+
 export function useCreateThread(): (template: string) => Promise<Thread> {
   return useCallback(async (template) => {
     const w = await apiFetch<WireThread>('/threads', {
@@ -363,16 +370,17 @@ export function useCreateThread(): (template: string) => Promise<Thread> {
   }, []);
 }
 
+// The server computes the authoritative period_key from the user's timezone,
+// so callers don't pass one (avoids timezone-mismatched duplicate occurrences).
 export function useUpsertOccurrence(): (
   template: string,
-  periodKey: string,
 ) => Promise<{ thread: Thread; created: boolean }> {
-  return useCallback(async (template, periodKey) => {
+  return useCallback(async (template) => {
     const result = await apiFetch<{ thread: WireThread; created: boolean }>(
       `/threads/occurrence`,
       {
         method: 'POST',
-        body: JSON.stringify({ template, period_key: periodKey }),
+        body: JSON.stringify({ template }),
       },
     );
     return { thread: toThread(result.thread), created: result.created };

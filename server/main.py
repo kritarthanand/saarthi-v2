@@ -738,43 +738,12 @@ def list_threads(template: str | None = None, today: bool = False):
 
     tz, day_start_hour = _get_user_schedule(db, user_id)
 
-    # Lazy-upsert today's / this-week's occurrence for scheduled templates
+    # NOTE: GET is read-only. Today's / this-week's scheduled occurrences are
+    # created by the cron reset jobs and by explicit POST /threads/occurrence
+    # (the "+" picker). We deliberately do NOT lazy-upsert here — doing so would
+    # instantly resurrect a ritual the user just deleted, since past occurrences
+    # of the same template would trigger re-creation on the next list call.
     thread_ids = [t["id"] for t in threads]
-    for t in threads:
-        cadence = TEMPLATE_CADENCE.get(t["template"], "none")
-        if cadence == "daily":
-            pk = _daily_period_key(now, tz, day_start_hour)
-            if t.get("period_key") != pk:
-                # Check if today's occurrence already exists for this template
-                existing = (
-                    db.table("v2_threads")
-                    .select("id")
-                    .eq("user_id", user_id)
-                    .eq("template", t["template"])
-                    .eq("period_key", pk)
-                    .execute()
-                    .data
-                )
-                if not existing:
-                    new_row, _ = _upsert_occurrence(db, user_id, t["template"], pk)
-                    threads.append(new_row)
-                    thread_ids.append(new_row["id"])
-        elif cadence == "weekly":
-            pk = _weekly_period_key(now, tz, day_start_hour)
-            if t.get("period_key") != pk:
-                existing = (
-                    db.table("v2_threads")
-                    .select("id")
-                    .eq("user_id", user_id)
-                    .eq("template", t["template"])
-                    .eq("period_key", pk)
-                    .execute()
-                    .data
-                )
-                if not existing:
-                    new_row, _ = _upsert_occurrence(db, user_id, t["template"], pk)
-                    threads.append(new_row)
-                    thread_ids.append(new_row["id"])
 
     # Fetch all tasks in one query; build per-thread map
     all_tasks: list[dict] = []

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 
 import { AppHeader } from '@/components/AppHeader';
+import { AutoCreateThreadsSetting } from '@/components/profile/AutoCreateThreadsSetting';
 import {
   CardPicker,
   ChipPicker,
@@ -36,7 +37,7 @@ import {
   ensureUserProfile,
   upsertUserProfile,
 } from '@/lib/profile';
-import { getSupabase } from '@/lib/supabase';
+import { apiFetch } from '@/lib/api';
 import { disableTestMode } from '@/lib/testMode';
 import type {
   ChatModelChoice,
@@ -238,15 +239,22 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
     }
   }
 
-  function confirmSignOut() {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+  async function ensureToday() {
+    try {
+      await apiFetch<void>('/threads/ensure-today', { method: 'POST' });
+    } catch (err) {
+      console.warn('ensure-today failed:', err);
+    }
+  }
+
+  function confirmResetPreferences() {
+    Alert.alert('Reset preferences', 'Reset all profile preferences to defaults?', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Sign Out',
+        text: 'Reset',
         style: 'destructive',
         onPress: async () => {
           await disableTestMode();
-          await getSupabase().auth.signOut();
         },
       },
     ]);
@@ -413,6 +421,13 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
                 disabled={!interactive}
               />
             </SettingsRow>
+
+            <AutoCreateThreadsSetting
+              selected={profile?.auto_create_templates ?? ['morning_ritual', 'evening_ritual']}
+              onUpdate={(updated) => setProfile(updated)}
+              onEnsureToday={ensureToday}
+              disabled={!interactive}
+            />
           </View>
         </SettingsSection>
 
@@ -445,13 +460,13 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
           </SettingsRow>
         </SettingsSection>
 
-        {/* ── Sign Out ─────────────────────────────────────────────────── */}
+        {/* ── Dev ──────────────────────────────────────────────────────── */}
         <TouchableOpacity
-          onPress={confirmSignOut}
-          className="border-danger mb-4 mt-8 self-center rounded-full border px-8 py-3"
+          onPress={confirmResetPreferences}
+          className="border-line mb-4 mt-8 self-center rounded-full border px-8 py-3"
           accessibilityRole="button"
         >
-          <Text className="text-danger text-sm font-semibold">Sign Out</Text>
+          <Text className="text-fg-muted text-sm">Reset preferences</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

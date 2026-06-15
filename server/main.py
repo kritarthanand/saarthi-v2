@@ -152,6 +152,19 @@ class CreateMessageBody(BaseModel):
     meta: dict[str, Any] = {}
 
 
+class ProfilePatchBody(BaseModel):
+    name: str | None = None
+    bio: str | None = None
+    personality: str | None = None
+    preferred_chat_model: str | None = None
+    tts_voice: str | None = None
+    timezone: str | None = None
+    day_start_hour: int | None = None
+    morning_deadline_hour: int | None = None
+    evening_start_hour: int | None = None
+    auto_create_templates: list[str] | None = None
+
+
 # ── Template metadata ─────────────────────────────────────────────────────────
 
 THREAD_TAGS: dict[str, str] = {
@@ -820,6 +833,83 @@ def upsert_occurrence(body: OccurrenceBody, response: Response):
 
 
 DEFAULT_AUTO_CREATE_TEMPLATES = ["morning_ritual", "evening_ritual"]
+
+PROFILE_DEFAULTS: dict[str, Any] = {
+    "name": "",
+    "bio": "",
+    "personality": "stoic",
+    "preferred_chat_model": "gpt_4o",
+    "tts_voice": "nova",
+    "timezone": "America/Los_Angeles",
+    "day_start_hour": 0,
+    "morning_deadline_hour": 12,
+    "evening_start_hour": 17,
+    "auto_create_templates": DEFAULT_AUTO_CREATE_TEMPLATES,
+}
+
+_VALID_PERSONALITIES = {"stoic", "hype", "zen"}
+_VALID_CHAT_MODELS = {"gpt_4o", "gpt_5_4", "claude_sonnet", "claude_opus"}
+_VALID_TTS_VOICES = {"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
+
+
+# ── Profile ───────────────────────────────────────────────────────────────────
+
+@app.get("/profile")
+def get_profile() -> dict:
+    user_id = get_dev_user_id()
+    db = get_supabase()
+    row = (
+        db.table("v2_profiles")
+        .select("*")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not row:
+        row = (
+            db.table("v2_profiles")
+            .upsert({"id": user_id, **PROFILE_DEFAULTS}, on_conflict="id")
+            .execute()
+            .data[0]
+        )
+    return row
+
+
+@app.put("/profile")
+def update_profile(body: ProfilePatchBody) -> dict:
+    user_id = get_dev_user_id()
+    db = get_supabase()
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+
+    errors = []
+    if "personality" in patch and patch["personality"] not in _VALID_PERSONALITIES:
+        errors.append(f"personality must be one of {sorted(_VALID_PERSONALITIES)}")
+    if "preferred_chat_model" in patch and patch["preferred_chat_model"] not in _VALID_CHAT_MODELS:
+        errors.append(f"preferred_chat_model must be one of {sorted(_VALID_CHAT_MODELS)}")
+    if "tts_voice" in patch and patch["tts_voice"] not in _VALID_TTS_VOICES:
+        errors.append(f"tts_voice must be one of {sorted(_VALID_TTS_VOICES)}")
+    for hour_field, lo, hi in [
+        ("day_start_hour", 0, 7),
+        ("morning_deadline_hour", 9, 14),
+        ("evening_start_hour", 17, 23),
+    ]:
+        if hour_field in patch and not (lo <= patch[hour_field] <= hi):
+            errors.append(f"{hour_field} must be between {lo} and {hi}")
+    if "auto_create_templates" in patch:
+        invalid = [t for t in patch["auto_create_templates"] if t not in SCHEDULED_TEMPLATES]
+        if invalid:
+            errors.append(f"auto_create_templates contains invalid templates: {invalid}")
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
+
+    row = (
+        db.table("v2_profiles")
+        .upsert({"id": user_id, **patch}, on_conflict="id")
+        .execute()
+        .data[0]
+    )
+    return row
 
 
 @app.post("/threads/ensure-today")

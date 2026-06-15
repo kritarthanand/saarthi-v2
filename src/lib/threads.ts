@@ -31,6 +31,9 @@ export type Thread = {
   done_count: number;
   points_earned: number;
   points_total: number;
+  // Latest message in thread (populated by list endpoints)
+  last_message_at: string | null;
+  last_message_preview: string | null;
 };
 
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'dropped';

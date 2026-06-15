@@ -80,6 +80,8 @@ class ThreadOut(BaseModel):
     done_count: int = 0
     points_earned: int = 0
     points_total: int = 0
+    last_message_at: str | None = None
+    last_message_preview: str | None = None
 
 
 class TaskOut(BaseModel):
@@ -150,6 +152,19 @@ class CreateMessageBody(BaseModel):
     content: str
     task_ref: str | None = None
     meta: dict[str, Any] = {}
+
+
+class ProfilePatchBody(BaseModel):
+    name: str | None = None
+    bio: str | None = None
+    personality: str | None = None
+    preferred_chat_model: str | None = None
+    tts_voice: str | None = None
+    timezone: str | None = None
+    day_start_hour: int | None = None
+    morning_deadline_hour: int | None = None
+    evening_start_hour: int | None = None
+    auto_create_templates: list[str] | None = None
 
 
 # ── Template metadata ─────────────────────────────────────────────────────────
@@ -415,13 +430,22 @@ def _assert_task_owner(db: Client, task_id: str, user_id: str) -> dict:
 
 # ── Row mappers ───────────────────────────────────────────────────────────────
 
-def _row_to_thread(row: dict, tasks: list[dict] | None = None) -> ThreadOut:
+def _row_to_thread(
+    row: dict,
+    tasks: list[dict] | None = None,
+    last_msg: dict | None = None,
+) -> ThreadOut:
     if tasks is None:
         tasks = []
     task_count = len(tasks)
     done_count = sum(1 for t in tasks if t.get("status") == "done")
     points_earned = sum(t.get("points", 0) for t in tasks if t.get("status") == "done")
     points_total = sum(t.get("points", 0) for t in tasks)
+    last_message_at = last_msg["created_at"] if last_msg else None
+    last_message_preview: str | None = None
+    if last_msg:
+        raw = last_msg.get("content", "")
+        last_message_preview = raw[:120] + "…" if len(raw) > 120 else raw
     return ThreadOut(
         id=row["id"],
         user_id=row["user_id"],
@@ -437,6 +461,8 @@ def _row_to_thread(row: dict, tasks: list[dict] | None = None) -> ThreadOut:
         done_count=done_count,
         points_earned=points_earned,
         points_total=points_total,
+        last_message_at=last_message_at,
+        last_message_preview=last_message_preview,
     )
 
 
@@ -759,7 +785,28 @@ def list_threads(template: str | None = None, today: bool = False):
     for task in all_tasks:
         tasks_by_thread.setdefault(task["thread_id"], []).append(task)
 
-    out = [_row_to_thread(t, tasks_by_thread.get(t["id"], [])) for t in threads]
+    # Fetch latest visible message per thread (user/ai only; desc → first per thread = latest)
+    all_msgs: list[dict] = []
+    if thread_ids:
+        all_msgs = (
+            db.table("v2_thread_messages")
+            .select("thread_id, content, created_at, role")
+            .in_("thread_id", thread_ids)
+            .in_("role", ["user", "ai"])
+            .order("created_at", desc=True)
+            .execute()
+            .data or []
+        )
+    last_msg_by_thread: dict[str, dict] = {}
+    for msg in all_msgs:
+        tid = msg["thread_id"]
+        if tid not in last_msg_by_thread:
+            last_msg_by_thread[tid] = msg
+
+    out = [
+        _row_to_thread(t, tasks_by_thread.get(t["id"], []), last_msg_by_thread.get(t["id"]))
+        for t in threads
+    ]
 
     if today:
         # Filter to threads whose period_key matches today's / this week's key
@@ -820,6 +867,83 @@ def upsert_occurrence(body: OccurrenceBody, response: Response):
 
 
 DEFAULT_AUTO_CREATE_TEMPLATES = ["morning_ritual", "evening_ritual"]
+
+PROFILE_DEFAULTS: dict[str, Any] = {
+    "name": "",
+    "bio": "",
+    "personality": "stoic",
+    "preferred_chat_model": "gpt_4o",
+    "tts_voice": "nova",
+    "timezone": "America/Los_Angeles",
+    "day_start_hour": 0,
+    "morning_deadline_hour": 12,
+    "evening_start_hour": 17,
+    "auto_create_templates": DEFAULT_AUTO_CREATE_TEMPLATES,
+}
+
+_VALID_PERSONALITIES = {"stoic", "hype", "zen"}
+_VALID_CHAT_MODELS = {"gpt_4o", "gpt_5_4", "claude_sonnet", "claude_opus"}
+_VALID_TTS_VOICES = {"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
+
+
+# ── Profile ───────────────────────────────────────────────────────────────────
+
+@app.get("/profile")
+def get_profile() -> dict:
+    user_id = get_dev_user_id()
+    db = get_supabase()
+    row = (
+        db.table("v2_profiles")
+        .select("*")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not row:
+        row = (
+            db.table("v2_profiles")
+            .upsert({"id": user_id, **PROFILE_DEFAULTS}, on_conflict="id")
+            .execute()
+            .data[0]
+        )
+    return row
+
+
+@app.put("/profile")
+def update_profile(body: ProfilePatchBody) -> dict:
+    user_id = get_dev_user_id()
+    db = get_supabase()
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+
+    errors = []
+    if "personality" in patch and patch["personality"] not in _VALID_PERSONALITIES:
+        errors.append(f"personality must be one of {sorted(_VALID_PERSONALITIES)}")
+    if "preferred_chat_model" in patch and patch["preferred_chat_model"] not in _VALID_CHAT_MODELS:
+        errors.append(f"preferred_chat_model must be one of {sorted(_VALID_CHAT_MODELS)}")
+    if "tts_voice" in patch and patch["tts_voice"] not in _VALID_TTS_VOICES:
+        errors.append(f"tts_voice must be one of {sorted(_VALID_TTS_VOICES)}")
+    for hour_field, lo, hi in [
+        ("day_start_hour", 0, 7),
+        ("morning_deadline_hour", 9, 14),
+        ("evening_start_hour", 17, 23),
+    ]:
+        if hour_field in patch and not (lo <= patch[hour_field] <= hi):
+            errors.append(f"{hour_field} must be between {lo} and {hi}")
+    if "auto_create_templates" in patch:
+        invalid = [t for t in patch["auto_create_templates"] if t not in SCHEDULED_TEMPLATES]
+        if invalid:
+            errors.append(f"auto_create_templates contains invalid templates: {invalid}")
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
+
+    row = (
+        db.table("v2_profiles")
+        .upsert({"id": user_id, **patch}, on_conflict="id")
+        .execute()
+        .data[0]
+    )
+    return row
 
 
 @app.post("/threads/ensure-today")

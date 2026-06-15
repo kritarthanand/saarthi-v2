@@ -40,6 +40,7 @@ export default function AppRoot() {
   const voiceSessionRef = useRef<VoiceSessionHandle>(null);
 
   // ── Live data from API ─────────────────────────────────────────────────────
+  // today: true → period-key-filtered list for TodayView + "active now" chips
   const { threads, refresh } = useThreads({ today: true });
   const ensureToday = useEnsureToday();
 
@@ -90,7 +91,7 @@ export default function AppRoot() {
           <TodayView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
         )}
         {tab === 'chat' && (
-          <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
+          <ChatHistoryView activeThreads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
         )}
         {tab === 'week' && (
           <PlaceholderView title="Week" subtitle="Trends and stretches across your last 7 days" topInset={phoneTopInset} />
@@ -191,7 +192,7 @@ export default function AppRoot() {
         }}
       >
         {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
-        {tab === 'chat' && <ChatHistoryView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
+        {tab === 'chat' && <ChatHistoryView activeThreads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
         {tab === 'coaches' && (
           <CoachesPane

@@ -41,10 +41,7 @@ export default function AppRoot() {
 
   // ── Live data from API ─────────────────────────────────────────────────────
   // today: true → period-key-filtered list for TodayView + "active now" chips
-  const { threads, refresh: refreshToday } = useThreads({ today: true });
-  // no filter → full history for ChatHistoryView
-  const { threads: allThreads, refresh: refreshAll } = useThreads();
-  const refresh = useCallback(() => { refreshToday(); refreshAll(); }, [refreshToday, refreshAll]);
+  const { threads, refresh } = useThreads({ today: true });
   const ensureToday = useEnsureToday();
 
   // On first load, ensure the user's opt-in scheduled templates (e.g. morning +
@@ -94,7 +91,7 @@ export default function AppRoot() {
           <TodayView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
         )}
         {tab === 'chat' && (
-          <ChatHistoryView activeThreads={threads} allThreads={allThreads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
+          <ChatHistoryView activeThreads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={phoneTopInset} />
         )}
         {tab === 'week' && (
           <PlaceholderView title="Week" subtitle="Trends and stretches across your last 7 days" topInset={phoneTopInset} />
@@ -195,7 +192,7 @@ export default function AppRoot() {
         }}
       >
         {tab === 'today' && <TodayView threads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
-        {tab === 'chat' && <ChatHistoryView activeThreads={threads} allThreads={allThreads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
+        {tab === 'chat' && <ChatHistoryView activeThreads={threads} onOpenThread={setOpenThreadId} onNew={() => setNewThreadOpen(true)} topInset={28} />}
         {tab === 'week' && <PlaceholderView title="Week" subtitle="Trends across your last 7 days" topInset={28} />}
         {tab === 'coaches' && (
           <CoachesPane

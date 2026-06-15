@@ -2,7 +2,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, View, StyleSheet } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
+import { useProfile } from '@/hooks/useProfile';
 import type { Thread } from '@/lib/threads';
+import { useThreads } from '@/lib/threads.hooks';
 import { AppHeader } from '../AppHeader';
 import { ChevRightIcon } from '../icons';
 
@@ -23,17 +25,28 @@ function formatTime(isoString: string): string {
   return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
-function calendarDateKey(isoString: string): string {
-  // YYYY-MM-DD in local time
+// Returns a YYYY-MM-DD key adjusted for day_start_hour.
+// If a thread was created before the day starts (e.g. 4 AM when day starts at 5 AM),
+// it belongs to the previous calendar day.
+function userDayKey(isoString: string, dayStartHour: number): string {
   const d = new Date(isoString);
+  if (d.getHours() < dayStartHour) {
+    d.setDate(d.getDate() - 1);
+  }
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function dayLabel(dateKey: string): string {
-  const today = calendarDateKey(new Date().toISOString());
-  const yesterday = calendarDateKey(new Date(Date.now() - 86400000).toISOString());
-  if (dateKey === today) return 'Today';
-  if (dateKey === yesterday) return 'Yesterday';
+function userTodayKey(dayStartHour: number): string {
+  return userDayKey(new Date().toISOString(), dayStartHour);
+}
+
+function userYesterdayKey(dayStartHour: number): string {
+  return userDayKey(new Date(Date.now() - 86400000).toISOString(), dayStartHour);
+}
+
+function dayLabel(dateKey: string, dayStartHour: number): string {
+  if (dateKey === userTodayKey(dayStartHour)) return 'Today';
+  if (dateKey === userYesterdayKey(dayStartHour)) return 'Yesterday';
   const d = new Date(dateKey + 'T12:00:00');
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
@@ -44,47 +57,46 @@ function threadPreview(t: Thread): string {
   return t.title || t.template.replace(/_/g, ' ');
 }
 
-function groupByDay(threads: Thread[]): DayGroup[] {
+function groupByDay(threads: Thread[], dayStartHour: number): DayGroup[] {
   const map = new Map<string, Thread[]>();
-  // Sort newest first before grouping
   const sorted = [...threads].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
   for (const t of sorted) {
-    const key = calendarDateKey(t.created_at);
+    const key = userDayKey(t.created_at, dayStartHour);
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(t);
   }
   return [...map.entries()].map(([dateKey, ts]) => ({
     dateKey,
-    label: dayLabel(dateKey),
+    label: dayLabel(dateKey, dayStartHour),
     threads: ts,
   }));
 }
 
 export function ChatHistoryView({
-  activeThreads,
-  allThreads,
+  activeThreads = [],
   onOpenThread,
   onNew,
   topInset = 52,
 }: {
-  activeThreads: Thread[];
-  allThreads: Thread[];
+  activeThreads?: Thread[];
   onOpenThread: (id: string) => void;
   onNew?: () => void;
   topInset?: number;
 }) {
   const [count, setCount] = useState(PAGE);
+  const { threads: allThreads, loading, error } = useThreads();
+  const { profile } = useProfile();
+  const dayStartHour = profile.day_start_hour;
 
-  const days = useMemo(() => groupByDay(allThreads), [allThreads]);
+  const days = useMemo(() => groupByDay(allThreads, dayStartHour), [allThreads, dayStartHour]);
   const data = days.slice(0, count);
 
   const loadMore = useCallback(() => {
     setCount((c) => Math.min(c + 2, days.length));
   }, [days.length]);
 
-  // Dedupe active chips by tag
   const activeChips = useMemo(() => {
     const seen = new Map<string, Thread>();
     for (const t of activeThreads) {
@@ -146,7 +158,23 @@ export function ChatHistoryView({
   );
 
   const renderFooter = () => {
-    if (allThreads.length === 0) {
+    if (loading) {
+      return (
+        <View style={{ paddingVertical: 48, alignItems: 'center' }}>
+          <ActivityIndicator size="small" color={Colors.textFaint} />
+        </View>
+      );
+    }
+    if (error) {
+      return (
+        <View style={{ paddingVertical: 48, alignItems: 'center', paddingHorizontal: 24 }}>
+          <Text style={{ color: Colors.textFaint, fontSize: 13, fontWeight: '500', textAlign: 'center' }}>
+            Couldn&apos;t load threads — {error.message}
+          </Text>
+        </View>
+      );
+    }
+    if (!allThreads.length) {
       return (
         <View style={{ paddingVertical: 48, alignItems: 'center' }}>
           <Text style={{ color: Colors.textFaint, fontSize: 13, fontWeight: '500' }}>

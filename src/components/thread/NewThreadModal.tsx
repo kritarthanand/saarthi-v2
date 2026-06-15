@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
 import { useCreateThread, useUpsertOccurrence } from '@/lib/threads.hooks';
@@ -32,6 +32,9 @@ export function NewThreadModal({
   onCreated: (threadId: string) => void;
   topInset?: number;
 }) {
+  const { width } = useWindowDimensions();
+  const isCompact = width < 820;
+
   const [creating, setCreating] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const createThread = useCreateThread();
@@ -76,14 +79,14 @@ export function NewThreadModal({
           borderBottomColor: Colors.border,
         }}
       >
-        <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.text, letterSpacing: -0.4 }}>
+        <Text style={{ fontSize: isCompact ? 22 : 26, fontWeight: '700', color: Colors.text, letterSpacing: -0.4 }}>
           New Thread
         </Text>
         <Pressable
           onPress={onClose}
           accessibilityLabel="Close"
           style={{
-            width: 32, height: 32, borderRadius: 16,
+            width: isCompact ? 32 : 36, height: isCompact ? 32 : 36, borderRadius: isCompact ? 16 : 18,
             backgroundColor: Colors.bgCard,
             borderColor: Colors.border, borderWidth: 1,
             alignItems: 'center', justifyContent: 'center',
@@ -110,7 +113,7 @@ export function NewThreadModal({
       {/* Template list */}
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, gap: 10 }}
+        contentContainerStyle={{ padding: isCompact ? 16 : 20, gap: isCompact ? 10 : 14 }}
         showsVerticalScrollIndicator={false}
       >
         {Object.entries(TEMPLATE_REGISTRY).map(([key, config]) => {
@@ -128,9 +131,9 @@ export function NewThreadModal({
                 borderColor: Colors.border,
                 borderWidth: 1,
                 borderRadius: 16,
-                padding: 16,
+                padding: isCompact ? 16 : 20,
                 flexDirection: 'row',
-                gap: 14,
+                gap: isCompact ? 14 : 18,
                 alignItems: 'center',
                 opacity: creating && !isLoading ? 0.4 : 1,
               })}
@@ -138,34 +141,35 @@ export function NewThreadModal({
               {/* Color swatch */}
               <View
                 style={{
-                  width: 44, height: 44, borderRadius: 12,
+                  width: isCompact ? 44 : 54, height: isCompact ? 44 : 54,
+                  borderRadius: isCompact ? 12 : 14,
                   backgroundColor: theme.dim,
                   borderColor: theme.color + '40', borderWidth: 1,
                   alignItems: 'center', justifyContent: 'center',
                 }}
               >
-                <Text style={{ fontSize: 20, color: theme.color }}>{theme.glyph}</Text>
+                <Text style={{ fontSize: isCompact ? 20 : 26, color: theme.color }}>{theme.glyph}</Text>
               </View>
 
               {/* Content */}
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={{ fontSize: 15, fontWeight: '600', color: Colors.text, letterSpacing: -0.2 }}>
+              <View style={{ flex: 1, gap: isCompact ? 3 : 5 }}>
+                <Text style={{ fontSize: isCompact ? 15 : 17, fontWeight: '600', color: Colors.text, letterSpacing: -0.2 }}>
                   {config.title}
                 </Text>
-                <Text style={{ fontSize: 12.5, color: Colors.textDim, lineHeight: 17 }}>
+                <Text style={{ fontSize: isCompact ? 12.5 : 14, color: Colors.textDim, lineHeight: isCompact ? 17 : 20 }}>
                   {TEMPLATE_DESCRIPTIONS[key] ?? ''}
                 </Text>
                 <View
                   style={{
                     alignSelf: 'flex-start',
-                    marginTop: 3,
-                    paddingVertical: 3, paddingHorizontal: 8,
+                    marginTop: isCompact ? 3 : 4,
+                    paddingVertical: isCompact ? 3 : 4, paddingHorizontal: isCompact ? 8 : 10,
                     borderRadius: 999,
                     backgroundColor: theme.color + '18',
                     borderColor: theme.color + '35', borderWidth: 1,
                   }}
                 >
-                  <Text style={{ fontSize: 10.5, fontWeight: '700', color: theme.color, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  <Text style={{ fontSize: isCompact ? 10.5 : 12, fontWeight: '700', color: theme.color, letterSpacing: 0.5, textTransform: 'uppercase' }}>
                     {CADENCE_LABEL[config.cadence]}
                   </Text>
                 </View>
@@ -175,7 +179,7 @@ export function NewThreadModal({
               {isLoading ? (
                 <ActivityIndicator size="small" color={theme.color} />
               ) : (
-                <Text style={{ fontSize: 20, color: Colors.textFaint, lineHeight: 24 }}>›</Text>
+                <Text style={{ fontSize: isCompact ? 20 : 24, color: Colors.textFaint, lineHeight: isCompact ? 24 : 28 }}>›</Text>
               )}
             </Pressable>
           );

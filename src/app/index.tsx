@@ -205,7 +205,13 @@ export default function AppRoot() {
 
       {/* Detail pane */}
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-        {openThreadId ? (
+        {newThreadOpen ? (
+          <NewThreadModal
+            topInset={28}
+            onClose={() => setNewThreadOpen(false)}
+            onCreated={(id) => { setNewThreadOpen(false); setTab('today'); setOpenThreadId(id); refresh(); }}
+          />
+        ) : openThreadId ? (
           <ThreadDetail
             key={openThreadId}
             threadId={openThreadId}
@@ -269,33 +275,6 @@ export default function AppRoot() {
         </Pressable>
       )}
 
-      {newThreadOpen && (
-        <Pressable
-          accessibilityLabel="Dismiss new thread picker"
-          onPress={() => setNewThreadOpen(false)}
-          style={{
-            position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.55)',
-            alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <Pressable
-            onPress={(e) => e.stopPropagation()}
-            style={{
-              width: 440, maxHeight: 760,
-              borderRadius: 28, overflow: 'hidden',
-              borderColor: Colors.borderStrong, borderWidth: 1,
-              backgroundColor: Colors.bg,
-            }}
-          >
-            <NewThreadModal
-              topInset={28}
-              onClose={() => setNewThreadOpen(false)}
-              onCreated={(id) => { setNewThreadOpen(false); setTab('today'); setOpenThreadId(id); refresh(); }}
-            />
-          </Pressable>
-        </Pressable>
-      )}
     </View>
   );
 }

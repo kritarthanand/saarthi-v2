@@ -20,6 +20,8 @@ type WireThread = {
   done_count: number;
   points_earned: number;
   points_total: number;
+  last_message_at: string | null;
+  last_message_preview: string | null;
 };
 
 type WireTask = {
@@ -67,6 +69,8 @@ function toThread(w: WireThread): Thread {
     done_count: w.done_count,
     points_earned: w.points_earned,
     points_total: w.points_total,
+    last_message_at: w.last_message_at ?? null,
+    last_message_preview: w.last_message_preview ?? null,
   };
 }
 

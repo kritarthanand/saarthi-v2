@@ -1,45 +1,97 @@
 import { useCallback, useMemo, useState } from 'react';
-import { FlatList, Pressable, ScrollView, Text, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, View, StyleSheet } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import {
-  HISTORY_DAYS,
-  type HistoryDay,
-} from '@/lib/mockData';
+import type { Thread } from '@/lib/threads';
 import { AppHeader } from '../AppHeader';
 import { ChevRightIcon } from '../icons';
 
-// Minimal shape accepted from both the new Thread (threads.ts) and legacy mock Thread
-type ThreadRef = { id: string; tag: string };
-
 const PAGE = 5;
 
+type DayGroup = {
+  label: string;
+  dateKey: string;
+  threads: Thread[];
+};
+
+function formatTime(isoString: string): string {
+  const d = new Date(isoString);
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
+
+function calendarDateKey(isoString: string): string {
+  // YYYY-MM-DD in local time
+  const d = new Date(isoString);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function dayLabel(dateKey: string): string {
+  const today = calendarDateKey(new Date().toISOString());
+  const yesterday = calendarDateKey(new Date(Date.now() - 86400000).toISOString());
+  if (dateKey === today) return 'Today';
+  if (dateKey === yesterday) return 'Yesterday';
+  const d = new Date(dateKey + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function threadPreview(t: Thread): string {
+  if (t.last_message_preview) return t.last_message_preview;
+  if (t.task_count > 0) return `${t.done_count} of ${t.task_count} done`;
+  return t.title || t.template.replace(/_/g, ' ');
+}
+
+function groupByDay(threads: Thread[]): DayGroup[] {
+  const map = new Map<string, Thread[]>();
+  // Sort newest first before grouping
+  const sorted = [...threads].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+  for (const t of sorted) {
+    const key = calendarDateKey(t.created_at);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(t);
+  }
+  return [...map.entries()].map(([dateKey, ts]) => ({
+    dateKey,
+    label: dayLabel(dateKey),
+    threads: ts,
+  }));
+}
+
 export function ChatHistoryView({
-  threads,
+  activeThreads,
+  allThreads,
   onOpenThread,
   onNew,
   topInset = 52,
 }: {
-  threads: ThreadRef[];
+  activeThreads: Thread[];
+  allThreads: Thread[];
   onOpenThread: (id: string) => void;
   onNew?: () => void;
   topInset?: number;
 }) {
   const [count, setCount] = useState(PAGE);
-  const data = HISTORY_DAYS.slice(0, count);
+
+  const days = useMemo(() => groupByDay(allThreads), [allThreads]);
+  const data = days.slice(0, count);
 
   const loadMore = useCallback(() => {
-    setCount((c) => Math.min(c + 2, HISTORY_DAYS.length));
-  }, []);
+    setCount((c) => Math.min(c + 2, days.length));
+  }, [days.length]);
 
-  // Dedupe by tag so two threads with the same tag don't render as identical chips.
-  const activeThreads = useMemo(() => {
-    const seen = new Map<string, ThreadRef>();
-    for (const t of threads) {
+  // Dedupe active chips by tag
+  const activeChips = useMemo(() => {
+    const seen = new Map<string, Thread>();
+    for (const t of activeThreads) {
       if (!seen.has(t.tag)) seen.set(t.tag, t);
     }
     return [...seen.values()];
-  }, [threads]);
+  }, [activeThreads]);
 
   const renderHeader = () => (
     <View>
@@ -59,127 +111,100 @@ export function ChatHistoryView({
           ) : 'all threads'
         }
       />
-      <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
-        <Text
-          style={{
-            fontSize: 10.5, color: Colors.textFaint, fontWeight: '700',
-            letterSpacing: 1, textTransform: 'uppercase',
-            paddingHorizontal: 4, paddingBottom: 8,
-          }}
-        >
-          active now
-        </Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 8 }}
-          keyboardShouldPersistTaps="handled"
-        >
-          {activeThreads.map((t) => {
-            const theme = threadTheme(t.tag);
-            return (
-              <Pressable
-                key={t.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${t.tag} thread`}
-                onPress={() => onOpenThread(t.id)}
-                style={{
-                  paddingVertical: 8, paddingHorizontal: 12,
-                  backgroundColor: theme.dim,
-                  borderColor: theme.color + '30', borderWidth: 1,
-                  borderRadius: 12, minWidth: 130, gap: 2,
-                }}
-              >
-                <Text style={{ fontSize: 13, color: theme.color, fontWeight: '700' }}>{t.tag}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
+      {activeChips.length > 0 && (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
+          <Text style={styles.sectionLabel}>active now</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 8 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            {activeChips.map((t) => {
+              const theme = threadTheme(t.tag);
+              return (
+                <Pressable
+                  key={t.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${t.tag} thread`}
+                  onPress={() => onOpenThread(t.id)}
+                  style={{
+                    paddingVertical: 8, paddingHorizontal: 12,
+                    backgroundColor: theme.dim,
+                    borderColor: theme.color + '30', borderWidth: 1,
+                    borderRadius: 12, minWidth: 130, gap: 2,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, color: theme.color, fontWeight: '700' }}>{t.tag}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
     </View>
   );
 
   const renderFooter = () => {
-    if (count < HISTORY_DAYS.length) {
+    if (allThreads.length === 0) {
+      return (
+        <View style={{ paddingVertical: 48, alignItems: 'center' }}>
+          <Text style={{ color: Colors.textFaint, fontSize: 13, fontWeight: '500' }}>
+            No threads yet — tap + to start one.
+          </Text>
+        </View>
+      );
+    }
+    if (count < days.length) {
       return (
         <View style={{ padding: 20, alignItems: 'center' }}>
-          <Text style={{ color: Colors.textFaint, fontSize: 12, fontWeight: '500' }}>loading more…</Text>
+          <ActivityIndicator size="small" color={Colors.textFaint} />
         </View>
       );
     }
     return (
       <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-        <Text
-          style={{
-            color: Colors.textFaint, fontSize: 11, fontWeight: '500',
-            letterSpacing: 1, textTransform: 'uppercase',
-          }}
-        >
-          ✦ that&apos;s everything
-        </Text>
+        <Text style={styles.endLabel}>✦ that&apos;s everything</Text>
       </View>
     );
   };
 
-  const renderDay = ({ item: day }: { item: HistoryDay }) => (
+  const renderDay = ({ item: day }: { item: DayGroup }) => (
     <View style={{ paddingHorizontal: 16, paddingBottom: 18 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 8 }}>
-        <Text style={{ fontSize: 13, color: Colors.text, fontWeight: '700' }}>{day.label}</Text>
-        {day.date ? (
-          <Text style={{ fontSize: 11.5, color: Colors.textFaint, fontWeight: '500' }}>{day.date}</Text>
-        ) : null}
+      <View style={styles.dayHeader}>
+        <Text style={styles.dayLabel}>{day.label}</Text>
       </View>
-      <View
-        style={{
-          backgroundColor: Colors.bgCard,
-          borderColor: Colors.border, borderWidth: 1,
-          borderRadius: 16, overflow: 'hidden',
-        }}
-      >
-        {day.threads.map((th, ti) => {
-          const theme = threadTheme(th.tag);
-          const routable = !!th.threadId && threads.some((t) => t.id === th.threadId);
+      <View style={styles.card}>
+        {day.threads.map((t, ti) => {
+          const theme = threadTheme(t.tag);
           const rowStyle = {
             paddingVertical: 12, paddingHorizontal: 14,
             borderBottomWidth: ti < day.threads.length - 1 ? 1 : 0,
             borderBottomColor: Colors.border,
             flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12,
           };
-          // Inner row key prefers stable threadId; falls back to tag+time to remain
-          // unique within a day. Using `ti` would re-key everything when a row inserts.
-          const rowKey = th.threadId ?? `${th.tag}@${th.time}`;
-          const rowContents = (
-            <>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.color }} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <View
-                  style={{
-                    flexDirection: 'row', alignItems: 'flex-end',
-                    justifyContent: 'space-between', gap: 8,
-                  }}
-                >
-                  <Text style={{ fontSize: 14, color: theme.color, fontWeight: '700' }}>{th.tag}</Text>
-                  <Text style={{ fontSize: 11, color: Colors.textFaint, fontWeight: '500' }}>{th.time}</Text>
-                </View>
-                <Text numberOfLines={1} style={{ fontSize: 12.5, color: Colors.textDim, fontWeight: '500' }}>
-                  {th.preview}
-                </Text>
-              </View>
-              {routable && <ChevRightIcon size={14} color={Colors.textFaint} />}
-            </>
-          );
-          return routable ? (
+          return (
             <Pressable
-              key={rowKey}
+              key={t.id}
               accessibilityRole="button"
-              accessibilityLabel={`Open ${th.tag} from ${day.label}`}
-              onPress={() => onOpenThread(th.threadId!)}
+              accessibilityLabel={`Open ${t.tag} from ${day.label}`}
+              onPress={() => onOpenThread(t.id)}
               style={rowStyle}
             >
-              {rowContents}
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.color }} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 }}>
+                  <Text style={{ fontSize: 14, color: theme.color, fontWeight: '700' }}>{t.tag}</Text>
+                  <Text style={{ fontSize: 11, color: Colors.textFaint, fontWeight: '500' }}>
+                    {formatTime(t.created_at)}
+                  </Text>
+                </View>
+                <Text numberOfLines={1} style={{ fontSize: 12.5, color: Colors.textDim, fontWeight: '500' }}>
+                  {threadPreview(t)}
+                </Text>
+              </View>
+              <ChevRightIcon size={14} color={Colors.textFaint} />
             </Pressable>
-          ) : (
-            <View key={rowKey} style={rowStyle}>{rowContents}</View>
           );
         })}
       </View>
@@ -191,7 +216,7 @@ export function ChatHistoryView({
       style={{ flex: 1, backgroundColor: Colors.bg }}
       contentContainerStyle={{ paddingBottom: 110 }}
       data={data}
-      keyExtractor={(d) => `${d.label}|${d.date}`}
+      keyExtractor={(d) => d.dateKey}
       renderItem={renderDay}
       ListHeaderComponent={renderHeader}
       ListFooterComponent={renderFooter}
@@ -212,5 +237,26 @@ const styles = StyleSheet.create({
   },
   newBtnText: {
     fontSize: 20, color: Colors.text, lineHeight: 24, fontWeight: '300',
+  },
+  sectionLabel: {
+    fontSize: 10.5, color: Colors.textFaint, fontWeight: '700',
+    letterSpacing: 1, textTransform: 'uppercase',
+    paddingHorizontal: 4, paddingBottom: 8,
+  },
+  endLabel: {
+    color: Colors.textFaint, fontSize: 11, fontWeight: '500',
+    letterSpacing: 1, textTransform: 'uppercase',
+  },
+  dayHeader: {
+    flexDirection: 'row', alignItems: 'flex-end',
+    paddingHorizontal: 4, paddingBottom: 8,
+  },
+  dayLabel: {
+    fontSize: 13, color: Colors.text, fontWeight: '700',
+  },
+  card: {
+    backgroundColor: Colors.bgCard,
+    borderColor: Colors.border, borderWidth: 1,
+    borderRadius: 16, overflow: 'hidden',
   },
 });

@@ -52,7 +52,7 @@ export function AutoCreateThreadsSetting({ selected, onUpdate, onEnsureToday, di
     } catch (err) {
       console.warn('Failed to save auto-create templates:', err);
       setOptimistic(prev);
-      Alert.alert('Couldn't save', 'Your change wasn't saved. Please try again.');
+      Alert.alert("Couldn't save", "Your change wasn't saved. Please try again.");
     }
   }
 
@@ -67,9 +67,21 @@ export function AutoCreateThreadsSetting({ selected, onUpdate, onEnsureToday, di
       >
         <Text className="text-fg text-base">Auto-create on open</Text>
         <View className="flex-row items-center gap-2">
-          <Text className="text-fg-muted text-sm" numberOfLines={1}>
-            {summary}
-          </Text>
+          {current.length === 0 ? (
+            <Text className="text-fg-muted text-sm">None</Text>
+          ) : (
+            <View className="flex-row items-center gap-1 flex-shrink">
+              {current.map((t, i) => {
+                const config = TEMPLATE_REGISTRY[t];
+                const theme = threadTheme(config?.tag ?? '');
+                return (
+                  <Text key={t} style={{ color: theme.color }} className="text-sm font-medium">
+                    {i > 0 ? ',  ' : ''}{config?.title ?? t}
+                  </Text>
+                );
+              })}
+            </View>
+          )}
           <Text className="text-fg-muted text-xs">{expanded ? '▲' : '▼'}</Text>
         </View>
       </TouchableOpacity>
@@ -91,7 +103,7 @@ export function AutoCreateThreadsSetting({ selected, onUpdate, onEnsureToday, di
                 accessibilityLabel={config.title}
               >
                 <View
-                  style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.color }}
+                  style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: theme.color, shadowColor: theme.color, shadowOpacity: 0.6, shadowRadius: 4, shadowOffset: { width: 0, height: 0 } }}
                 />
                 <View className="flex-1">
                   <Text className="text-fg text-sm">{config.title}</Text>

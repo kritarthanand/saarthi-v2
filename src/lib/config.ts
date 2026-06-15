@@ -46,11 +46,19 @@ export async function setProxyUrl(url: string): Promise<void> {
 // If multi-device parity ever becomes a goal, promote this to a column on
 // v2_profiles and backfill from AsyncStorage on first launch.
 export async function getVoiceTransportMode(): Promise<VoiceTransportMode> {
-  const stored = await AsyncStorage.getItem(VOICE_TRANSPORT_KEY);
-  if (stored === 'server_streaming' || stored === 'streaming_fallback') return stored;
+  try {
+    const stored = await AsyncStorage.getItem(VOICE_TRANSPORT_KEY);
+    if (stored === 'server_streaming' || stored === 'streaming_fallback') return stored;
+  } catch (e) {
+    console.warn('getVoiceTransportMode: AsyncStorage unavailable', e);
+  }
   return 'auto';
 }
 
 export async function setVoiceTransportMode(mode: VoiceTransportMode): Promise<void> {
-  await AsyncStorage.setItem(VOICE_TRANSPORT_KEY, mode);
+  try {
+    await AsyncStorage.setItem(VOICE_TRANSPORT_KEY, mode);
+  } catch (e) {
+    console.warn('setVoiceTransportMode: AsyncStorage unavailable', e);
+  }
 }

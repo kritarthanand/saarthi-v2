@@ -190,7 +190,7 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
       console.warn('Profile save failed:', err);
       setProfile(prev);
       if (field) setFieldStatus((s) => ({ ...s, [field]: 'error' }));
-      Alert.alert('Couldn’t save', 'Your change wasn’t saved. Please try again.');
+      Alert.alert("Couldn’t save", "Your change wasn’t saved. Please try again.");
       throw err;
     }
   }
@@ -203,7 +203,7 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
     } catch (err) {
       console.warn('Failed to save voice transport:', err);
       setVoiceTransportState(prev);
-      Alert.alert('Couldn’t save', 'Voice transport change wasn’t saved.');
+      Alert.alert("Couldn’t save", "Voice transport change wasn’t saved.");
     }
   }
 
@@ -281,6 +281,8 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
                 placeholder="Your name"
                 placeholderTextColor={Colors.textFaint}
                 returnKeyType="done"
+                autoCapitalize="none"
+                autoCorrect={false}
                 accessibilityLabel="Name"
               />
               <View className="ml-3">
@@ -300,6 +302,8 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
                 multiline
                 numberOfLines={3}
                 textAlignVertical="top"
+                autoCapitalize="sentences"
+                autoCorrect={false}
                 accessibilityLabel="About you"
               />
               <View className="-mt-1 flex-row justify-end">
@@ -422,13 +426,17 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
               />
             </SettingsRow>
 
-            <AutoCreateThreadsSetting
-              selected={profile?.auto_create_templates ?? ['morning_ritual', 'evening_ritual']}
-              onUpdate={(updated) => setProfile(updated)}
-              onEnsureToday={ensureToday}
-              disabled={!interactive}
-            />
           </View>
+        </SettingsSection>
+
+        {/* ── Threads ──────────────────────────────────────────────────── */}
+        <SettingsSection title="Threads">
+          <AutoCreateThreadsSetting
+            selected={profile?.auto_create_templates ?? ['morning_ritual', 'evening_ritual']}
+            onUpdate={(updated) => setProfile(updated)}
+            onEnsureToday={ensureToday}
+            disabled={!interactive}
+          />
         </SettingsSection>
 
         {/* ── Server ───────────────────────────────────────────────────── */}
@@ -439,7 +447,7 @@ export function ProfilePane({ topInset = 52 }: { topInset?: number }) {
               proxyStatus === 'saved'
                 ? '✓ Saved'
                 : proxyStatus === 'error'
-                ? 'Couldn’t save — check the URL and try again.'
+                ? "Couldn’t save — check the URL and try again."
                 : 'Enter your ngrok or local IP URL (e.g. https://xxxx.ngrok-free.app)'
             }
           >

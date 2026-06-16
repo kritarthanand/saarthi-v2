@@ -1,0 +1,5 @@
+tunnel: 7fbd3deb-d588-469f-8851-af3f68bfe463
+credentials-file: ~/.cloudflared/7fbd3deb-d588-469f-8851-af3f68bfe463.json
+
+ingress:
+  - service: http://localhost:3001

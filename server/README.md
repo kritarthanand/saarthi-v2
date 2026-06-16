@@ -14,43 +14,31 @@ These are already set up if you have V1 running:
 
 ### First-time setup
 
-1. **Copy the env file from V1 and add V2-specific keys:**
-
-   ```bash
-   cp ../V1/server/.env server/.env
-   ```
-
-   Then open `server/.env` and add:
-
-   ```env
-   SAARTHI_DEV_USER_ID=cc3835ac-433b-40d3-9a46-72ec37c2f78f
-   CRON_SECRET=f81b745b7e9de1e9348beb6c7d20284f28ad7ae7ec7e10eb18e56e5b8380ebe3
-   ```
-
-   Everything else (`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `OPENAI_API_KEY`, etc.) is shared with V1 and already in the file.
-
-2. **That's it.** Dependencies install automatically on first run.
-
-### Running
-
-From the repo root:
+Run the setup script once — it installs all deps, configures pm2, and sets up auto-start on reboot:
 
 ```bash
-# Local only (same Wi-Fi)
-bash server.sh
-
-# With Cloudflare tunnel (accessible via https://api.kritarthanand.com)
-bash server.sh --cloudflare
+bash setup-server.sh
 ```
+
+It will prompt you to:
+1. Fill in `server/.env` (copy from V1's `server/.env` and add the two V2 keys shown)
+2. Copy the Cloudflare tunnel credentials from your dev Mac if not already present
 
 ### Deploying a code change
 
 ```bash
-git pull
-bash server.sh --cloudflare
+git pull && pm2 restart saarthi-v2-server
 ```
 
-Ctrl+C stops both the server and the tunnel.
+### Useful commands
+
+```bash
+pm2 status                    # check server + tunnel are running
+pm2 logs saarthi-v2-server    # server logs
+pm2 logs saarthi-v2-tunnel    # tunnel logs
+pm2 restart saarthi-v2-server # restart server after git pull
+pm2 restart all               # restart everything
+```
 
 ### Verify it's working
 

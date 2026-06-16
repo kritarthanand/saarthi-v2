@@ -24,7 +24,7 @@ These are already set up if you have V1 running:
 
    ```env
    SAARTHI_DEV_USER_ID=cc3835ac-433b-40d3-9a46-72ec37c2f78f
-   CRON_SECRET=<generate with: python3 -c "import secrets; print(secrets.token_hex(32))">
+   CRON_SECRET=f81b745b7e9de1e9348beb6c7d20284f28ad7ae7ec7e10eb18e56e5b8380ebe3
    ```
 
    Everything else (`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `OPENAI_API_KEY`, etc.) is shared with V1 and already in the file.

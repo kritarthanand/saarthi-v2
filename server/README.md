@@ -23,8 +23,8 @@ These are already set up if you have V1 running:
    Then open `server/.env` and add:
 
    ```env
-   SAARTHI_DEV_USER_ID=<your uuid from Supabase auth.users>
-   CRON_SECRET=<any random string>
+   SAARTHI_DEV_USER_ID=cc3835ac-433b-40d3-9a46-72ec37c2f78f
+   CRON_SECRET=<generate with: python3 -c "import secrets; print(secrets.token_hex(32))">
    ```
 
    Everything else (`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `OPENAI_API_KEY`, etc.) is shared with V1 and already in the file.

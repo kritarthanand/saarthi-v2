@@ -12,6 +12,7 @@ import { SaarthiLogo } from '../SaarthiLogo';
 import { ThreadChat } from './ThreadChat';
 import { ThreadChatTab } from './ThreadChatTab';
 import { ThreadEditSheet } from './ThreadEditSheet';
+import { TaskEditor } from './TaskEditor';
 
 let _localMsgId = 0;
 
@@ -357,6 +358,13 @@ export function ThreadDetail({
             contentContainerStyle={{ paddingBottom: 170 }}
             keyboardShouldPersistTaps="handled"
           >
+            {tab === 'summary' && editTasksOpen ? (
+              <TaskEditor
+                threadId={threadId}
+                tasks={localTasks}
+                onChange={(next) => setLocalTasks(next)}
+              />
+            ) : null}
             {tab === 'summary' && config != null ? (
               <config.SummaryView
                 thread={thread}

@@ -34,8 +34,10 @@ WHISPER_MODEL = "whisper-1"
 
 ALLOWED_AUDIO_MIME = {
     "audio/m4a",
+    "audio/x-m4a",  # iOS labels m4a uploads with the legacy x- variant
     "audio/mp4",
     "audio/wav",
+    "audio/x-wav",
     "audio/webm",
     "audio/mpeg",
 }

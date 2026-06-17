@@ -11,6 +11,8 @@ export function Composer({
   accent = Colors.accent,
   hashtag,
   paddingBottom = 100,
+  pendingText,
+  onPendingTextConsumed,
 }: {
   placeholder?: string;
   onSend?: (text: string) => void;
@@ -18,8 +20,21 @@ export function Composer({
   accent?: string;
   hashtag?: string;
   paddingBottom?: number;
+  /**
+   * When a non-empty string lands here (e.g. a transcribed voice clip), the
+   * Composer appends it to the current input value (no auto-send — the user
+   * can still edit). The parent should clear it via onPendingTextConsumed so
+   * it doesn't keep re-inserting on every render.
+   */
+  pendingText?: string;
+  onPendingTextConsumed?: () => void;
 }) {
   const [val, setVal] = useState('');
+  useEffect(() => {
+    if (!pendingText) return;
+    setVal((prev) => (prev ? `${prev} ${pendingText}` : pendingText));
+    onPendingTextConsumed?.();
+  }, [pendingText, onPendingTextConsumed]);
   // The Composer is `position: absolute` so iOS doesn't reflow it when the keyboard
   // appears. Track the keyboard inset manually and pad the bottom by it; KAV doesn't
   // mix well with absolute children.

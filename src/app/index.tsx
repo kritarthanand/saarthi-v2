@@ -36,6 +36,7 @@ export default function AppRoot() {
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [selectedCoachId, setSelectedCoachId] = useState<CoachId | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [pendingComposerText, setPendingComposerText] = useState<string | undefined>(undefined);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const voiceSessionRef = useRef<VoiceSessionHandle>(null);
 
@@ -123,6 +124,8 @@ export default function AppRoot() {
               threadId={openThreadId}
               onClose={() => { setOpenThreadId(null); refresh(); }}
               onMic={() => setVoiceOpen(true)}
+              pendingComposerText={pendingComposerText}
+              onPendingComposerTextConsumed={() => setPendingComposerText(undefined)}
               topInset={Math.max(insets.top, 12) + 34}
               bottomInset={Math.max(insets.bottom, 12)}
             />
@@ -154,6 +157,7 @@ export default function AppRoot() {
               warnSeconds={30}
               existingThreads={[]}
               onSave={handleSave}
+              onTranscribed={(text) => setPendingComposerText(text)}
               onClose={() => setVoiceOpen(false)}
               topInset={Math.max(insets.top, 12) + 34}
             />
@@ -218,6 +222,8 @@ export default function AppRoot() {
             threadId={openThreadId}
             onClose={() => { setOpenThreadId(null); refresh(); }}
             onMic={() => setVoiceOpen(true)}
+            pendingComposerText={pendingComposerText}
+            onPendingComposerTextConsumed={() => setPendingComposerText(undefined)}
             embedded
             topInset={20}
             bottomInset={0}
@@ -269,6 +275,7 @@ export default function AppRoot() {
               warnSeconds={30}
               existingThreads={[]}
               onSave={handleSave}
+              onTranscribed={(text) => setPendingComposerText(text)}
               onClose={() => setVoiceOpen(false)}
               topInset={28}
             />

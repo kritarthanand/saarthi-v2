@@ -23,6 +23,8 @@ export function ThreadDetail({
   topInset = 50,
   bottomInset = 0,
   embedded = false,
+  pendingComposerText,
+  onPendingComposerTextConsumed,
 }: {
   threadId: string;
   onClose: () => void;
@@ -30,6 +32,8 @@ export function ThreadDetail({
   topInset?: number;
   bottomInset?: number;
   embedded?: boolean;
+  pendingComposerText?: string;
+  onPendingComposerTextConsumed?: () => void;
 }) {
   const [tab, setTab] = useState<'summary' | 'chat'>('summary');
   const [sentCount, setSentCount] = useState(0);
@@ -350,6 +354,8 @@ export function ThreadDetail({
           bottomInset={bottomInset}
           sentCount={sentCount}
           aiTyping={aiTyping}
+          pendingComposerText={pendingComposerText}
+          onPendingComposerTextConsumed={onPendingComposerTextConsumed}
         />
       ) : (
         <>
@@ -402,6 +408,8 @@ export function ThreadDetail({
             paddingBottom={Math.max(bottomInset, 12) + 16}
             onSend={(text) => handleSendMessage(text).catch(console.error)}
             onMic={onMic}
+            pendingText={pendingComposerText}
+            onPendingTextConsumed={onPendingComposerTextConsumed}
           />
         </>
       )}

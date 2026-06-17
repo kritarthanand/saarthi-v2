@@ -22,6 +22,8 @@ export type ThreadChatProps = {
   sentCount?: number;
   /** When true, render a "Saarthi is typing…" indicator below the last bubble. */
   aiTyping?: boolean;
+  pendingComposerText?: string;
+  onPendingComposerTextConsumed?: () => void;
 };
 
 function fmtTime(iso: string): string {
@@ -38,6 +40,8 @@ export function ThreadChat({
   readOnly = false,
   sentCount = 0,
   aiTyping = false,
+  pendingComposerText,
+  onPendingComposerTextConsumed,
 }: ThreadChatProps) {
   const theme = threadTheme(thread.tag);
   const scrollRef = useRef<ScrollView>(null);
@@ -175,6 +179,8 @@ export function ThreadChat({
         paddingBottom={composerPaddingBottom}
         onSend={handleSend}
         onMic={onMic}
+        pendingText={pendingComposerText}
+        onPendingTextConsumed={onPendingComposerTextConsumed}
       />
     </View>
   );

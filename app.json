@@ -37,6 +37,12 @@
             "imageWidth": 76
           }
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Saarthi uses the mic to transcribe what you say into your thread."
+        }
       ]
     ],
     "experiments": {

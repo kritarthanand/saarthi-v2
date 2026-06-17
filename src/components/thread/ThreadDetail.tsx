@@ -11,6 +11,7 @@ import { BackIcon, DotsIcon } from '../icons';
 import { SaarthiLogo } from '../SaarthiLogo';
 import { ThreadChat } from './ThreadChat';
 import { ThreadChatTab } from './ThreadChatTab';
+import { ThreadEditSheet } from './ThreadEditSheet';
 
 let _localMsgId = 0;
 
@@ -285,6 +286,41 @@ export function ThreadDetail({
             }}
           >
             <Pressable
+              onPress={() => {
+                setOptionsOpen(false);
+                setEditOpen(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Edit thread"
+              style={({ pressed }) => ({
+                flexDirection: 'row', alignItems: 'center', gap: 10,
+                paddingVertical: 13, paddingHorizontal: 14,
+                backgroundColor: pressed ? 'rgba(255,255,255,0.04)' : 'transparent',
+                borderTopLeftRadius: 14, borderTopRightRadius: 14,
+              })}
+            >
+              <Text style={{ fontSize: 16 }}>✎</Text>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.text }}>Edit thread</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setOptionsOpen(false);
+                setEditTasksOpen((v) => !v);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Edit tasks"
+              style={({ pressed }) => ({
+                flexDirection: 'row', alignItems: 'center', gap: 10,
+                paddingVertical: 13, paddingHorizontal: 14,
+                backgroundColor: pressed ? 'rgba(255,255,255,0.04)' : 'transparent',
+              })}
+            >
+              <Text style={{ fontSize: 16 }}>☑</Text>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.text }}>
+                {editTasksOpen ? 'Done editing tasks' : 'Edit tasks'}
+              </Text>
+            </Pressable>
+            <Pressable
               onPress={handleDelete}
               accessibilityRole="button"
               accessibilityLabel="Delete thread"
@@ -361,6 +397,13 @@ export function ThreadDetail({
           />
         </>
       )}
+
+      <ThreadEditSheet
+        thread={thread}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => refresh()}
+      />
     </View>
   );
 }

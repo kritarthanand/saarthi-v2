@@ -117,10 +117,12 @@ def chat_complete(
     if provider == "openai":
         client = _get_openai()
         oai_messages = [{"role": "system", "content": system}] + messages
+        # gpt-5 / o-series reject `max_tokens` and require `max_completion_tokens`.
+        # gpt-4o accepts both; we standardize on the new name.
         resp = client.chat.completions.create(
             model=model,
             messages=oai_messages,
-            max_tokens=MAX_TOKENS_PER_REPLY,
+            max_completion_tokens=MAX_TOKENS_PER_REPLY,
         )
         choice = resp.choices[0]
         return (choice.message.content or "").strip()

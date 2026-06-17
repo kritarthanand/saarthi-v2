@@ -1405,7 +1405,50 @@ def create_message(thread_id: str, body: CreateMessageBody):
     if body.idempotency_key is not None:
         payload["idempotency_key"] = body.idempotency_key
 
-    user_row = db.table("v2_thread_messages").insert(payload).execute().data[0]
+    # Insert-then-fallback to close the TOCTOU window on the dedupe SELECT above.
+    # Two concurrent POSTs with the same (thread_id, idempotency_key) can both
+    # miss the lookup; the partial unique index v2_thread_messages_idem_uniq
+    # then raises on the loser. Catch that, return the winner's cached pair, and
+    # crucially DO NOT call the LLM on the conflict path — the winning request
+    # already did (or will).
+    try:
+        user_row = db.table("v2_thread_messages").insert(payload).execute().data[0]
+    except PostgRESTAPIError as e:
+        msg = str(e)
+        is_dup = (
+            body.idempotency_key
+            and body.role == "user"
+            and ("duplicate key" in msg or "v2_thread_messages_idem_uniq" in msg)
+        )
+        if not is_dup:
+            raise
+        existing = (
+            db.table("v2_thread_messages")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .eq("idempotency_key", body.idempotency_key)
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        if not existing:
+            raise
+        winner = existing[0]
+        ai_rows = (
+            db.table("v2_thread_messages")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .in_("role", ["ai", "system"])
+            .gte("created_at", winner["created_at"])
+            .order("created_at")
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        return {
+            "user_message": _row_to_message(winner),
+            "ai_message": _row_to_message(ai_rows[0]) if ai_rows else None,
+        }
 
     # Only generate an AI reply for user messages.
     if body.role != "user":

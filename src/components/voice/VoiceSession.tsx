@@ -12,6 +12,7 @@ import { Pressable, Text, View } from 'react-native';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
+  setAudioModeAsync,
   useAudioRecorder,
 } from 'expo-audio';
 
@@ -89,6 +90,11 @@ export const VoiceSession = forwardRef<
           setPhase('denied');
           return;
         }
+        // iOS requires the audio session to be flipped into playAndRecord
+        // before record() will fire; otherwise expo-audio throws
+        // RecordingDisabledException at the native layer.
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        if (cancelled) return;
         await recorder.prepareToRecordAsync();
         if (cancelled) return;
         recorder.record();

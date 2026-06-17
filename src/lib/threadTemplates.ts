@@ -42,6 +42,10 @@ export type TemplateConfig = {
   defaultCoach: CoachId;
   seedTasks: SeedTask[];
   carryOver: boolean;         // whether undone tasks roll to next occurrence
+  // Knowledge-bank source ids this template links to (display/docs only — the
+  // server is the source of truth, see server/knowledge/links.py
+  // TEMPLATE_KNOWLEDGE). Resolved per-thread via GET /threads/{id}/knowledge.
+  knowledge?: string[];
   SummaryView: React.ComponentType<SummaryViewProps>;
 };
 
@@ -130,6 +134,7 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateConfig> = {
     title: 'Meal Log',
     defaultCoach: 'bheem',
     carryOver: false,
+    knowledge: ['recipes'],   // linked recipe & macro bank — see server/knowledge/
     seedTasks: [
       { title: 'Log breakfast',         points: 3, meta: { type: 'nutrition' } },
       { title: 'Log lunch',             points: 3, meta: { type: 'nutrition' } },

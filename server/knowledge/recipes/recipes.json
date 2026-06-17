@@ -1,0 +1,86 @@
+[
+  {
+    "id": "tandoori_chicken",
+    "name": "Tandoori Chicken",
+    "aliases": ["chicken tandoori", "tandoori"],
+    "yields_servings": 2,
+    "ingredients": [
+      { "food": "kirkland_chicken_thigh_raw", "qty": 360, "unit": "g" },
+      { "food": "yogurt_greek_2pct_plain", "qty": 150, "unit": "g" }
+    ],
+    "seasonings": ["turmeric", "chili powder", "garam masala", "rajma masala"],
+    "prep": {
+      "method": "air_fry",
+      "notes": "Marinate chicken cubes overnight in yogurt + spices.\nAir fry 3 min, rotate, 3 min, check for white inside, +2 min as needed.\nYields 2 meal-prep containers, each 1 serving.\n"
+    }
+  },
+  {
+    "id": "tandoori_chicken_breast",
+    "name": "Tandoori Chicken (Breast)",
+    "aliases": ["chicken tandoori breast", "tandoori breast", "lean tandoori chicken"],
+    "yields_servings": 2,
+    "ingredients": [
+      { "food": "kirkland_chicken_breast_raw", "qty": 400, "unit": "g" },
+      { "food": "yogurt_greek_2pct_plain", "qty": 150, "unit": "g" }
+    ],
+    "seasonings": ["turmeric", "chili powder", "garam masala", "rajma masala"],
+    "prep": {
+      "method": "air_fry",
+      "notes": "Marinate chicken cubes overnight in yogurt + spices.\nAir fry 3 min, rotate, 3 min, check for white inside, +2 min as needed.\nBreast cooks faster and dries out — pull as soon as interior is white.\nYields 2 meal-prep containers, each 1 serving.\n"
+    }
+  },
+  {
+    "id": "chicken_burrito",
+    "name": "Chicken Burrito",
+    "aliases": ["chicken burrito", "burrito"],
+    "yields_servings": 4,
+    "ingredients": [
+      { "food": "kirkland_chicken_thigh_raw", "qty": 360, "unit": "g" },
+      { "food": "rosarita_refried_beans_organic", "qty": 1, "unit": "serving" },
+      { "food": "lucerne_mexican_4cheese_shredded", "qty": 100, "unit": "g" },
+      { "food": "mission_flour_tortilla_burrito", "qty": 4, "unit": "serving" }
+    ],
+    "seasonings": [],
+    "prep": {
+      "method": "air_fry",
+      "notes": "Air fry chicken thighs 4-6 min; cube.\nMix chicken thoroughly with one full can of refried beans.\nDivide filling into 4 meal-prep containers.\nAdd 25 g shredded cheese to each container.\nTo eat: roll one container's filling into a burrito tortilla,\nair fry the wrapped burrito for 6 min.\n"
+    }
+  },
+  {
+    "id": "turkey_kabab",
+    "name": "Turkey Kabab",
+    "aliases": ["turkey kabab", "kabab", "turkey kebab", "kebab", "turkey patty", "turkey patties"],
+    "yields_servings": 12,
+    "ingredients": [
+      { "food": "norbest_ground_turkey_93_7_raw", "qty": 757, "unit": "g" },
+      { "food": "tj_panko_breadcrumbs", "qty": 34, "unit": "g" }
+    ],
+    "seasonings": ["fine-cut onions", "fresh chilli", "fresh coriander"],
+    "prep": {
+      "method": "bake",
+      "notes": "Mix ground turkey, panko, finely-cut onions, fresh chilli, and coriander.\nForm into 12 patties; arrange on a tray.\nPreheat oven to 350°F. Bake 12 min total (6 min each side).\nCheck internal temp reaches 165°F with a thermometer.\nFreeze for later.\n1 patty = 1 serving.\n"
+    }
+  },
+  {
+    "id": "chicken_basmati_fried_rice",
+    "name": "Chicken & Basmati Fried Rice",
+    "aliases": ["chicken fried rice", "fried rice", "basmati fried rice", "chicken basmati fried rice"],
+    "yields_servings": 2,
+    "ingredients": [
+      { "food": "kirkland_chicken_thigh_raw", "qty": 400, "unit": "g" },
+      { "food": "ginger_garlic_paste", "qty": 8, "unit": "g" },
+      { "food": "soy_sauce_light", "qty": 24, "unit": "g" },
+      { "food": "sesame_oil_toasted", "qty": 5, "unit": "g" },
+      { "food": "basmati_rice_dry", "qty": 185, "unit": "g" },
+      { "food": "frozen_mixed_vegetables", "qty": 200, "unit": "g" },
+      { "food": "olive_oil_light", "qty": 14, "unit": "g" },
+      { "food": "soy_sauce_light", "qty": 24, "unit": "g" },
+      { "food": "sesame_oil_toasted", "qty": 7, "unit": "g" }
+    ],
+    "seasonings": ["white pepper"],
+    "prep": {
+      "method": "instant_pot_plus_oven_plus_pan",
+      "notes": "AHEAD (overnight ideal):\n1. Rice: rinse basmati until water runs clear. Instant Pot with 225g water, High pressure 5 min, natural release 10 min. Spread on tray, refrigerate uncovered.\n2. Chicken: toss diced thigh with ginger-garlic paste, soy, sesame oil, and ½ of the white pepper. Rest 20–30 min (or marinate overnight). Spread single-layer on lined sheet pan. Roast at 220°C / 425°F for ~18 min until browned. Cool.\n3. Veg: spread frozen mixed veg on a tray from frozen — do not thaw. Roast at 220°C / 425°F for 15–18 min until water cooks off and edges brown. Cool.\n\nEAT DAY (~6 min):\n4. Heat pan or Instant Pot (Sauté More/High) ripping hot. Add olive oil.\n5. Add cold rice, break up clumps, spread single layer. Let sit ~1 min, toss, repeat 2–3 min until toasty grains appear.\n6. Pour soy sauce around the edge so it sizzles. Toss to coat. Add remaining white pepper. Taste before adding more soy.\n7. Fold in roasted chicken and roasted veg. Toss 1–2 min to heat. Kill heat, drizzle finishing sesame oil, toss once, portion.\n\nNotes: Cold rice is essential — fries crisp instead of clumping. Storage: 4 days fridge. Reheat in hot skillet or under broiler, not microwave.\n"
+    }
+  }
+]

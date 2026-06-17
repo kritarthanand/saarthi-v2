@@ -414,12 +414,16 @@ export function usePatchThread(): (
 export function useTranscribe(): (
   audio: { uri: string; type?: string; name?: string },
 ) => Promise<string> {
-  return useCallback(async ({ uri, type = 'audio/m4a', name = 'recording.m4a' }) => {
+  return useCallback(async ({ uri, type: _type = 'audio/m4a', name = 'recording.m4a' }) => {
     const { getProxyUrl } = await import('./config');
+    const { File } = await import('expo-file-system');
     const base = await getProxyUrl();
+    // Expo SDK 56 ships a strict WinterCG fetch that rejects the legacy
+    // RN `{uri, name, type}` FormData part shape — it requires something with
+    // `.bytes()`. expo-file-system's File implements the Blob interface.
+    const file = new File(uri);
     const form = new FormData();
-    // RN typing fights us here; the runtime accepts { uri, type, name } verbatim.
-    form.append('file', { uri, type, name } as unknown as Blob);
+    form.append('file', file as unknown as Blob, name);
     const res = await fetch(`${base}/transcribe`, {
       method: 'POST',
       body: form,

@@ -21,15 +21,24 @@ export function TaskEditor({
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Show open + in_progress only; sort by position ascending.
-  const editable = useMemo(
-    () =>
-      tasks
-        .filter((t) => t.status === 'open' || t.status === 'in_progress')
-        .slice()
-        .sort((a, b) => a.position - b.position),
-    [tasks],
-  );
+  // Show open + in_progress only; sort by (section, position) so that
+  // weekly_ritual threads (which seed review/plan sections with overlapping
+  // position values 0..n) render in section-grouped order. Within a section,
+  // ascending position. Sections are ordered by first-seen in the input.
+  const editable = useMemo(() => {
+    const live = tasks.filter((t) => t.status === 'open' || t.status === 'in_progress');
+    const sectionOrder: string[] = [];
+    for (const t of live) {
+      const key = t.section ?? '';
+      if (!sectionOrder.includes(key)) sectionOrder.push(key);
+    }
+    return live.slice().sort((a, b) => {
+      const aSec = a.section ?? '';
+      const bSec = b.section ?? '';
+      if (aSec !== bSec) return sectionOrder.indexOf(aSec) - sectionOrder.indexOf(bSec);
+      return a.position - b.position;
+    });
+  }, [tasks]);
 
   const replaceOne = useCallback(
     (updated: Task) => {
@@ -61,6 +70,10 @@ export function TaskEditor({
       const swapIdx = idx + dir;
       if (idx < 0 || swapIdx < 0 || swapIdx >= editable.length) return;
       const other = editable[swapIdx]!;
+      // Refuse cross-section swaps — weekly_ritual has review/plan sections
+      // with overlapping position values, so a naive swap would scramble the
+      // visual grouping (see WeeklyRitualSummary which segments by section).
+      if ((task.section ?? '') !== (other.section ?? '')) return;
       // Swap positions optimistically.
       const optimisticTasks = tasks.map((t) => {
         if (t.id === task.id) return { ...t, position: other.position };
@@ -128,18 +141,25 @@ export function TaskEditor({
       >
         Edit tasks
       </Text>
-      {editable.map((task, idx) => (
-        <TaskRow
-          key={task.id}
-          task={task}
-          isFirst={idx === 0}
-          isLast={idx === editable.length - 1}
-          onRename={(next) => handleRename(task, next)}
-          onMoveUp={() => handleReorder(task, -1)}
-          onMoveDown={() => handleReorder(task, 1)}
-          onDelete={() => handleDelete(task)}
-        />
-      ))}
+      {editable.map((task, idx) => {
+        const prev = editable[idx - 1];
+        const next = editable[idx + 1];
+        const sec = task.section ?? '';
+        const isFirstInSection = !prev || (prev.section ?? '') !== sec;
+        const isLastInSection = !next || (next.section ?? '') !== sec;
+        return (
+          <TaskRow
+            key={task.id}
+            task={task}
+            isFirst={isFirstInSection}
+            isLast={isLastInSection}
+            onRename={(nextTitle) => handleRename(task, nextTitle)}
+            onMoveUp={() => handleReorder(task, -1)}
+            onMoveDown={() => handleReorder(task, 1)}
+            onDelete={() => handleDelete(task)}
+          />
+        );
+      })}
       <View
         style={{
           flexDirection: 'row',

@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -12,11 +13,12 @@ from pydantic import BaseModel
 from postgrest.exceptions import APIError as PostgRESTAPIError
 from supabase import create_client, Client
 
-from knowledge import recipes as recipes_lib
 from knowledge.context import assemble_thread_knowledge
 from knowledge.sources import get_source, list_sources
 
 load_dotenv()
+
+logger = logging.getLogger("saarthi.v2")
 
 _scheduler = BackgroundScheduler(timezone="UTC")
 
@@ -1226,7 +1228,10 @@ def create_message(thread_id: str, body: CreateMessageBody):
         try:
             _ = assemble_thread_knowledge(thread_row.get("template"), thread_row.get("meta"))
         except Exception:
-            pass  # knowledge assembly must never block message persistence
+            # Knowledge assembly must never block message persistence — but log the
+            # traceback so failures aren't silently swallowed once `ctx` is wired
+            # to the model.
+            logger.exception("knowledge assembly failed for thread %s", thread_id)
 
     return _row_to_message(row)
 
@@ -1248,35 +1253,43 @@ def search_knowledge(source_id: str, q: str = ""):
     return {"source": source_id, "query": q, "results": source.search(q)}
 
 
+def _recipes_source():
+    """Return the recipes source, or 503 if it isn't registered (import/startup
+    failure). Keeps the endpoints from raising a bare AttributeError on None."""
+    src = get_source("recipes")
+    if src is None:
+        raise HTTPException(status_code=503, detail="recipes knowledge source unavailable")
+    return src
+
+
+def _entry_or_404(kind: str, id_or_alias: str) -> dict:
+    """Look a single entry up through the source's public `entry()` API and
+    enforce its kind, so /recipes only returns recipes and /foods only foods."""
+    result = _recipes_source().entry(id_or_alias)
+    if result is None or result.get("kind") != kind:
+        raise HTTPException(status_code=404, detail=f"unknown {kind}: {id_or_alias}")
+    return result
+
+
 @app.get("/recipes")
 def list_recipes_endpoint():
     """The meal list — every recipe with per-serving + total macros."""
-    src = get_source("recipes")
-    return {"recipes": src.meals()}  # type: ignore[attr-defined]
+    return {"recipes": _recipes_source().meals()}
 
 
 @app.get("/recipes/{id_or_alias}")
 def get_recipe_endpoint(id_or_alias: str):
-    r = recipes_lib.get_recipe(id_or_alias)
-    if r is None:
-        raise HTTPException(status_code=404, detail=f"unknown recipe: {id_or_alias}")
-    src = get_source("recipes")
-    return src._recipe_to_dict(r)  # type: ignore[attr-defined]
+    return _entry_or_404("recipe", id_or_alias)
 
 
 @app.get("/foods")
 def list_foods_endpoint():
-    src = get_source("recipes")
-    return {"foods": src.foods()}  # type: ignore[attr-defined]
+    return {"foods": _recipes_source().foods()}
 
 
 @app.get("/foods/{id_or_alias}")
 def get_food_endpoint(id_or_alias: str):
-    f = recipes_lib.get_food(id_or_alias)
-    if f is None:
-        raise HTTPException(status_code=404, detail=f"unknown food: {id_or_alias}")
-    src = get_source("recipes")
-    return src._food_to_dict(f)  # type: ignore[attr-defined]
+    return _entry_or_404("food", id_or_alias)
 
 
 @app.get("/threads/{thread_id}/knowledge")

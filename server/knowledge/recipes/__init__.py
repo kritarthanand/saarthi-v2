@@ -85,8 +85,8 @@ class _MtimeCache[T: (Food, ComputedRecipe)]:
             return list(self._all)
         out: list[T] = []
         for item in self._all:
-            haystay = [item.id.lower(), item.name.lower(), *(a.lower() for a in item.aliases)]
-            if any(q in h for h in haystay):
+            haystack = [item.id.lower(), item.name.lower(), *(a.lower() for a in item.aliases)]
+            if any(q in h for h in haystack):
                 out.append(item)
         return out
 

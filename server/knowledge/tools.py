@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from knowledge.recipes import get_food, get_recipe
 from knowledge.sources import get_source
 
 # ── Tool specs (Anthropic tool-use shape) ──────────────────────────────────────
@@ -85,44 +84,36 @@ def specs_for(tool_names: list[str]) -> list[dict[str, Any]]:
 
 # ── Dispatch ────────────────────────────────────────────────────────────────────
 
+def _lookup_entry(kind: str, name: str | None) -> dict[str, Any]:
+    """Resolve a single recipe/food via the source's public `entry()` so the tool
+    path and the HTTP endpoints return one identical shape (no duplicated
+    serializers). `kind` is "recipe" or "food"."""
+    if not name:
+        return {"error": "missing required argument: name_or_alias"}
+    src = get_source("recipes")
+    if src is None:
+        return {"error": "recipes knowledge source unavailable"}
+    result = src.entry(name)
+    if result is None or result.get("kind") != kind:
+        return {"error": f"unknown {kind}: {name!r}"}
+    return result
+
+
 def dispatch(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Run a tool call. Returns a JSON-serialisable dict, or {"error": ...}."""
     if tool_name == "query_recipe":
-        name = args.get("name_or_alias", "")
-        r = get_recipe(name)
-        if r is None:
-            return {"error": f"unknown recipe: {name!r}"}
-        return {
-            "id": r.id,
-            "name": r.name,
-            "yields_servings": r.yields_servings,
-            "per_serving_macros": r.per_serving_macros.model_dump(),
-            "total_macros": r.total_macros.model_dump(),
-            "ingredients": [
-                {"name": ing.food_name, "qty": ing.qty, "unit": ing.unit}
-                for ing in r.ingredients_resolved
-            ],
-            "aliases": r.aliases,
-        }
+        return _lookup_entry("recipe", args.get("name_or_alias"))
 
     if tool_name == "query_food":
-        name = args.get("name_or_alias", "")
-        f = get_food(name)
-        if f is None:
-            return {"error": f"unknown food: {name!r}"}
-        return {
-            "id": f.id,
-            "name": f.name,
-            "basis": {"per": f.basis.per, "unit": f.basis.unit},
-            "serving_label": f.serving_label,
-            "macros": f.macros.model_dump(),
-            "aliases": f.aliases,
-        }
+        return _lookup_entry("food", args.get("name_or_alias"))
 
     if tool_name == "search_knowledge":
-        source = get_source(args.get("source", ""))
+        source_id = args.get("source")
+        if not source_id:
+            return {"error": "missing required argument: source"}
+        source = get_source(source_id)
         if source is None:
-            return {"error": f"unknown source: {args.get('source')!r}"}
+            return {"error": f"unknown source: {source_id!r}"}
         return {"results": source.search(args.get("query", ""))}
 
     return {"error": f"unknown tool: {tool_name!r}"}

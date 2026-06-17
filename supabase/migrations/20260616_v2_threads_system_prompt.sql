@@ -13,9 +13,16 @@ ALTER TABLE v2_threads
       ('claude_opus', 'claude_sonnet', 'gpt_4o', 'gpt_5_4'));
 
 -- Length cap mirrors the server-side validation in PATCH /threads/{id}.
-ALTER TABLE v2_threads
-  ADD CONSTRAINT v2_threads_system_prompt_len
-  CHECK (system_prompt IS NULL OR char_length(system_prompt) <= 4000);
+-- Pre-PG15 has no IF NOT EXISTS for ADD CONSTRAINT, so guard via DO block
+-- to keep `supabase db push` idempotent across re-runs.
+DO $$
+BEGIN
+  ALTER TABLE v2_threads
+    ADD CONSTRAINT v2_threads_system_prompt_len
+    CHECK (system_prompt IS NULL OR char_length(system_prompt) <= 4000);
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Idempotency key on the messages table. Partial unique index ensures we can
 -- dedupe POST /threads/{id}/messages by (thread_id, idempotency_key) without

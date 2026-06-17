@@ -20,6 +20,8 @@ export type ThreadChatProps = {
    * the bottom while they're browsing.
    */
   sentCount?: number;
+  /** When true, render a "Saarthi is typing…" indicator below the last bubble. */
+  aiTyping?: boolean;
 };
 
 function fmtTime(iso: string): string {
@@ -35,6 +37,7 @@ export function ThreadChat({
   bottomInset = 0,
   readOnly = false,
   sentCount = 0,
+  aiTyping = false,
 }: ThreadChatProps) {
   const theme = threadTheme(thread.tag);
   const scrollRef = useRef<ScrollView>(null);
@@ -153,6 +156,16 @@ export function ThreadChat({
             </View>
           );
         })}
+        {aiTyping && (
+          <View
+            accessibilityLabel="Saarthi is typing"
+            style={{ alignItems: 'flex-start', maxWidth: '88%', gap: 4 }}
+          >
+            <Text style={{ fontSize: 13, color: Colors.textFaint, fontStyle: 'italic' }}>
+              Saarthi is typing…
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       <Composer

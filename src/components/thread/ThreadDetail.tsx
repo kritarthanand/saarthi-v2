@@ -4,7 +4,7 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { Colors, threadTheme } from '@/constants/theme';
 import { TEMPLATE_REGISTRY } from '@/lib/threadTemplates';
 import type { Task, TaskStatus, Thread, ThreadMessage } from '@/lib/threads';
-import { apiFetch, useDeleteThread, usePatchTask, useSendMessage, useThread } from '@/lib/threads.hooks';
+import { useDeleteThread, usePatchTask, useSendMessage, useThread } from '@/lib/threads.hooks';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
 import { BackIcon, DotsIcon } from '../icons';
@@ -32,6 +32,9 @@ export function ThreadDetail({
   const [tab, setTab] = useState<'summary' | 'chat'>('summary');
   const [sentCount, setSentCount] = useState(0);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [aiTyping, setAiTyping] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTasksOpen, setEditTasksOpen] = useState(false);
 
   const { thread, tasks, messages, refresh } = useThread(threadId);
 
@@ -116,11 +119,20 @@ export function ThreadDetail({
       };
       setLocalMessages((prev) => [...prev, optimistic]);
       setSentCount((c) => c + 1);
+      setAiTyping(true);
       try {
-        await sendMessage(threadId, text, taskRef);
+        const { user, ai } = await sendMessage(threadId, text, taskRef);
+        // Swap the optimistic stub for the persisted user row and append AI reply.
+        setLocalMessages((prev) => {
+          const next = prev.map((m) => (m.id === optimistic.id ? user : m));
+          if (ai) next.push(ai);
+          return next;
+        });
         setTimeout(() => refresh(), 250);
       } catch (e) {
         console.error('sendMessage failed', e);
+      } finally {
+        setAiTyping(false);
       }
     },
     [sendMessage, threadId, refresh],
@@ -300,6 +312,7 @@ export function ThreadDetail({
           onMic={onMic}
           bottomInset={bottomInset}
           sentCount={sentCount}
+          aiTyping={aiTyping}
         />
       ) : (
         <>
@@ -322,6 +335,21 @@ export function ThreadDetail({
             ) : null}
           </ScrollView>
 
+          {aiTyping && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: 16,
+                right: 16,
+                bottom: Math.max(bottomInset, 12) + 16 + 64,
+              }}
+            >
+              <Text style={{ fontSize: 12, color: Colors.textFaint, fontStyle: 'italic' }}>
+                Saarthi is typing…
+              </Text>
+            </View>
+          )}
           {/* Composer */}
           <Composer
             accent={theme.color}

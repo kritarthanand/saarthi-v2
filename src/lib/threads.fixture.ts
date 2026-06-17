@@ -17,6 +17,10 @@ export const FIXTURE_MORNING_THREAD: Thread = {
   done_count: 3,
   points_earned: 14,
   points_total: 47,
+  last_message_at: null,
+  last_message_preview: null,
+  system_prompt: null,
+  chat_model: null,
 };
 
 export const FIXTURE_EVENING_THREAD: Thread = {
@@ -34,6 +38,10 @@ export const FIXTURE_EVENING_THREAD: Thread = {
   done_count: 0,
   points_earned: 0,
   points_total: 0,
+  last_message_at: null,
+  last_message_preview: null,
+  system_prompt: null,
+  chat_model: null,
 };
 
 export const FIXTURE_WEEKLY_THREAD: Thread = {
@@ -51,6 +59,10 @@ export const FIXTURE_WEEKLY_THREAD: Thread = {
   done_count: 3,
   points_earned: 15,
   points_total: 45,
+  last_message_at: null,
+  last_message_preview: null,
+  system_prompt: null,
+  chat_model: null,
 };
 
 export const FIXTURE_THREADS: Thread[] = [

@@ -414,29 +414,40 @@ export function usePatchThread(): (
 export function useTranscribe(): (
   audio: { uri: string; type?: string; name?: string },
 ) => Promise<string> {
-  return useCallback(async ({ uri, type: _type = 'audio/m4a', name = 'recording.m4a' }) => {
+  return useCallback(async ({ uri, type = 'audio/m4a', name = 'recording.m4a' }) => {
     const { getProxyUrl } = await import('./config');
-    const { File } = await import('expo-file-system');
     const base = await getProxyUrl();
-    // Expo SDK 56 ships a strict WinterCG fetch that rejects the legacy
-    // RN `{uri, name, type}` FormData part shape — it requires something with
-    // `.bytes()`. expo-file-system's File implements the Blob interface.
-    const file = new File(uri);
+    // Expo SDK 56's WinterCG fetch rejects the legacy RN `{uri, name, type}`
+    // FormData part shape ("Unsupported FormDataPart implementation"). Route the
+    // upload through XMLHttpRequest, which uses RN's native networking layer
+    // and still accepts that shape.
     const form = new FormData();
-    form.append('file', file as unknown as Blob, name);
-    const res = await fetch(`${base}/transcribe`, {
-      method: 'POST',
-      body: form,
-      // DO NOT set Content-Type — fetch must set the multipart boundary itself.
+    form.append('file', { uri, type, name } as unknown as Blob);
+    return await new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${base}/transcribe`);
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const json = JSON.parse(xhr.responseText) as { text: string };
+            resolve(json.text ?? '');
+          } catch (e) {
+            reject(new Error(`bad json from /transcribe: ${String(e)}`));
+          }
+        } else {
+          let detail = `HTTP ${xhr.status}`;
+          try {
+            const body = JSON.parse(xhr.responseText) as { detail?: unknown };
+            if (typeof body.detail === 'string') detail = body.detail;
+          } catch {
+            /* keep generic */
+          }
+          reject(Object.assign(new Error(detail), { status: xhr.status }));
+        }
+      };
+      xhr.onerror = () => reject(new Error('network error during /transcribe'));
+      xhr.send(form);
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const detail = (body as { detail?: unknown })?.detail;
-      const msg = typeof detail === 'string' ? detail : `HTTP ${res.status}`;
-      throw Object.assign(new Error(msg), { status: res.status, body });
-    }
-    const json = (await res.json()) as { text: string };
-    return json.text ?? '';
   }, []);
 }
 

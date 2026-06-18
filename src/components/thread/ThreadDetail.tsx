@@ -108,6 +108,9 @@ export function ThreadDetail({
 
   const handleSendMessage = useCallback(
     async (text: string, taskRef?: string) => {
+      // Switch to chat view so the user immediately sees their message + AI reply
+      // instead of staying on the summary while it happens off-screen.
+      setTab('chat');
       if (taskRef) {
         // Mark the associated task as done optimistically
         setLocalTasks((prev) =>

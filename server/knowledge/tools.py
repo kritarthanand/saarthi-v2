@@ -13,9 +13,12 @@ endpoint will hand tool-use blocks to. Ported in spirit from V1
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from knowledge.sources import get_source
+
+logger = logging.getLogger("saarthi.v2.knowledge")
 
 # ── Tool specs (Anthropic tool-use shape) ──────────────────────────────────────
 
@@ -78,8 +81,17 @@ TOOL_SPECS: dict[str, dict[str, Any]] = {
 
 
 def specs_for(tool_names: list[str]) -> list[dict[str, Any]]:
-    """Return the tool specs for the given names, in order, skipping unknowns."""
-    return [TOOL_SPECS[n] for n in tool_names if n in TOOL_SPECS]
+    """Return the tool specs for the given names, in order. An unknown name
+    (e.g. a typo in a manifest's `tools` array) is skipped but logged, so the
+    LLM silently losing a tool is at least visible in the logs."""
+    out: list[dict[str, Any]] = []
+    for n in tool_names:
+        spec = TOOL_SPECS.get(n)
+        if spec is None:
+            logger.warning("unknown tool name (not in TOOL_SPECS), skipping: %r", n)
+            continue
+        out.append(spec)
+    return out
 
 
 # ── Dispatch ────────────────────────────────────────────────────────────────────
@@ -111,9 +123,14 @@ def dispatch(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         source_id = args.get("source")
         if not source_id:
             return {"error": "missing required argument: source"}
+        query = args.get("query")
+        if not query:
+            # An empty query would dump the entire catalog to the model — almost
+            # certainly a malformed tool call, so surface it instead.
+            return {"error": "missing required argument: query"}
         source = get_source(source_id)
         if source is None:
             return {"error": f"unknown source: {source_id!r}"}
-        return {"results": source.search(args.get("query", ""))}
+        return {"results": source.search(query)}
 
     return {"error": f"unknown tool: {tool_name!r}"}

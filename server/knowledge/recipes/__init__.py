@@ -38,7 +38,16 @@ def _read_items(path: Path) -> list[dict]:
     wrapped `{"recipes": [...]}` object (recipes.computed.json)."""
     raw = json.loads(path.read_text())
     if isinstance(raw, dict):
-        return raw.get("recipes") or raw.get("items") or []
+        # Use `in` (not `or`) so an intentionally-empty list isn't treated as a
+        # missing key, and so an unrecognised wrapper fails loudly instead of
+        # silently yielding an empty catalog.
+        for key in ("recipes", "items"):
+            if key in raw:
+                return raw[key]
+        raise ValueError(
+            f"Unrecognised wrapper key in {path.name}: {sorted(raw.keys())} "
+            f"(expected 'recipes' or 'items')"
+        )
     return raw or []
 
 
@@ -64,10 +73,20 @@ class _MtimeCache[T: (Food, ComputedRecipe)]:
         self._by_alias = by_alias
 
     def _refresh(self) -> None:
-        current = self._path.stat().st_mtime
+        try:
+            current = self._path.stat().st_mtime
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"{self._path.name} not found. Run: "
+                f"cd server && uv run python -m knowledge.recipes.compute"
+            ) from None
         if current != self._mtime:
-            self._reload()
+            # Stamp the mtime *before* reloading: if the file is malformed and
+            # _reload() raises, we surface the error on this request but don't
+            # re-read/re-parse the broken file on every subsequent one. A fixed
+            # file changes its mtime and reloads normally.
             self._mtime = current
+            self._reload()
 
     def lookup(self, id_or_alias: str) -> T | None:
         self._refresh()

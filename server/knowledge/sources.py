@@ -17,6 +17,7 @@ recipes.
 """
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -26,9 +27,12 @@ from knowledge import recipes as recipes_lib
 _KNOWLEDGE_ROOT = Path(__file__).parent
 
 
-class KnowledgeSource:
+class KnowledgeSource(ABC):
     """Base class. A source is identified by `source_id`, which is also its
-    folder name under server/knowledge/."""
+    folder name under server/knowledge/.
+
+    `search`/`index`/`entry` are abstract: a subclass that forgets one fails at
+    instantiation (module import) with TypeError, not on the first request."""
 
     source_id: str = ""
 
@@ -61,15 +65,18 @@ class KnowledgeSource:
         path = self._dir / rel
         return path.read_text() if path.exists() else ""
 
-    # -- subclasses override these ------------------------------------------
+    # -- subclasses must implement these ------------------------------------
+    @abstractmethod
     def search(self, query: str) -> list[dict[str, Any]]:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def index(self, limit: int | None = None) -> str:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def entry(self, entry_id: str) -> dict[str, Any] | None:
-        raise NotImplementedError
+        ...
 
 
 class _RecipesSource(KnowledgeSource):

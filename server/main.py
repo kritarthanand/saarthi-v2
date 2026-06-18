@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from postgrest.exceptions import APIError as PostgRESTAPIError
@@ -1245,8 +1245,12 @@ def list_knowledge_sources() -> dict:
 
 
 @app.get("/knowledge/{source_id}/search")
-def search_knowledge(source_id: str, q: str = ""):
-    """Generic search over a knowledge source by free-text query."""
+def search_knowledge(source_id: str, q: str = Query(..., min_length=1)):
+    """Generic search over a knowledge source by free-text query.
+
+    `q` is required and non-empty: an empty query would return the whole catalog,
+    which is almost always an accidental omission rather than intent (422 instead).
+    """
     source = get_source(source_id)
     if source is None:
         raise HTTPException(status_code=404, detail=f"unknown knowledge source: {source_id}")

@@ -76,18 +76,18 @@ export function Composer({
           replying in <Text style={{ color: accent, fontWeight: '600' }}>{hashtag}</Text>
         </Text>
       )}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
         <View
           style={{
             flex: 1,
             flexDirection: 'row',
-            alignItems: 'center',
+            alignItems: 'flex-end',
             gap: 6,
             paddingLeft: 16,
             paddingRight: 6,
             paddingVertical: 6,
             backgroundColor: Colors.bgCardElev,
-            borderRadius: 999,
+            borderRadius: 22,
             borderWidth: 1,
             borderColor: Colors.border,
           }}
@@ -97,9 +97,16 @@ export function Composer({
             onChangeText={setVal}
             placeholder={placeholder}
             placeholderTextColor={Colors.textFaint}
-            onSubmitEditing={send}
-            returnKeyType="send"
-            style={{ flex: 1, color: Colors.text, fontSize: 15, paddingVertical: 8 }}
+            multiline
+            scrollEnabled
+            style={{
+              flex: 1,
+              color: Colors.text,
+              fontSize: 15,
+              paddingVertical: 8,
+              maxHeight: 120,
+              textAlignVertical: 'center',
+            }}
           />
           {val.trim().length > 0 && (
             <Pressable

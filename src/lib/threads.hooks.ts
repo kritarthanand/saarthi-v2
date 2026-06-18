@@ -418,16 +418,18 @@ export function useTranscribe(): (
   audio: { uri: string; type?: string; name?: string },
 ) => Promise<string> {
   return useCallback(async ({ uri, type = 'audio/m4a', name = 'recording.m4a' }) => {
+    const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+    if (!key) throw new Error('EXPO_PUBLIC_OPENAI_API_KEY is not configured');
+
     const form = new FormData();
     form.append('file', { uri, type, name } as unknown as Blob);
     form.append('model', 'whisper-1');
-    return await new Promise<string>((resolve, reject) => {
+    return new Promise<string>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'https://api.openai.com/v1/audio/transcriptions');
-      xhr.setRequestHeader(
-        'Authorization',
-        `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? ''}`,
-      );
+      xhr.setRequestHeader('Authorization', `Bearer ${key}`);
+      xhr.timeout = 30_000;
+      xhr.ontimeout = () => reject(new Error('transcription timed out'));
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {

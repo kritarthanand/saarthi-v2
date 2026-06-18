@@ -26,6 +26,8 @@ export type Thread = {
   archived_at: string | null;
   meta: Record<string, unknown>;
   created_at: string;
+  system_prompt: string | null;
+  chat_model: string | null;
   // Computed by server
   task_count: number;
   done_count: number;

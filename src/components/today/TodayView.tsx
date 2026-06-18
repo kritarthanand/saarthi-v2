@@ -45,7 +45,7 @@ export function TodayView({
       contentContainerStyle={{ paddingBottom: 130 }}
       showsVerticalScrollIndicator={false}
     >
-      <AppHeader title="Today" right={headerRight} topInset={topInset} />
+      <AppHeader title="Today" subtitle={dayLabel} right={headerRight} topInset={topInset} />
       <ScoreHeader />
       <View style={{ paddingHorizontal: 16, gap: 10 }}>
         {threads.map((t) => (

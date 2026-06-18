@@ -10,6 +10,9 @@ dependencies = [
     "supabase>=2.31.0",
     "apscheduler>=3.10",
     "postgrest>=0.16",
+    "anthropic>=0.39.0",
+    "openai>=1.0",
+    "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]

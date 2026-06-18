@@ -6,11 +6,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Response
+from fastapi import FastAPI, File, Header, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from postgrest.exceptions import APIError as PostgRESTAPIError
 from supabase import create_client, Client
+
+import llm
 
 load_dotenv()
 
@@ -76,6 +78,8 @@ class ThreadOut(BaseModel):
     archived_at: str | None
     meta: dict[str, Any]
     created_at: str
+    system_prompt: str | None = None
+    chat_model: str | None = None
     task_count: int = 0
     done_count: int = 0
     points_earned: int = 0
@@ -152,6 +156,16 @@ class CreateMessageBody(BaseModel):
     content: str
     task_ref: str | None = None
     meta: dict[str, Any] = {}
+    idempotency_key: str | None = None
+
+
+class PatchThreadBody(BaseModel):
+    title: str | None = None
+    system_prompt: str | None = None
+    chat_model: str | None = None
+    coach_id: str | None = None
+
+    model_config = {"extra": "forbid"}
 
 
 class ProfilePatchBody(BaseModel):
@@ -457,6 +471,8 @@ def _row_to_thread(
         archived_at=row.get("archived_at"),
         meta=row.get("meta") or {},
         created_at=row["created_at"],
+        system_prompt=row.get("system_prompt"),
+        chat_model=row.get("chat_model"),
         task_count=task_count,
         done_count=done_count,
         points_earned=points_earned,
@@ -882,8 +898,9 @@ PROFILE_DEFAULTS: dict[str, Any] = {
 }
 
 _VALID_PERSONALITIES = {"stoic", "hype", "zen"}
-_VALID_CHAT_MODELS = {"gpt_4o", "gpt_5_4", "claude_sonnet", "claude_opus"}
+_VALID_CHAT_MODELS = set(llm.CHAT_MODELS.keys())
 _VALID_TTS_VOICES = {"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
+_VALID_COACHES = {"arjun", "bheem", "yudi", "nakula", "sahdev"}
 
 
 # ── Profile ───────────────────────────────────────────────────────────────────
@@ -1189,7 +1206,155 @@ def list_messages(thread_id: str):
     return [_row_to_message(r) for r in rows]
 
 
-@app.post("/threads/{thread_id}/messages", response_model=MessageOut, status_code=201)
+_PROMPT_CHAR_CAP = 8000
+_HISTORY_LIMIT = 30
+_HISTORY_FALLBACK_LIMIT = 15
+_TASK_CAP = 30
+_BASE_SYSTEM = "You are an assistant inside the user's Saarthi thread."
+
+
+def _assemble_system_prompt(
+    thread_row: dict,
+    open_tasks: list[dict],
+) -> str:
+    """Static base + optional user_instructions wrap + thread_tasks block.
+
+    Caps total at _PROMPT_CHAR_CAP. If over, drop oldest tasks first.
+    Caller separately trims history when system is rebuilt with fewer tasks.
+    """
+    parts: list[str] = [_BASE_SYSTEM]
+    sp = (thread_row.get("system_prompt") or "").strip()
+    if sp:
+        parts.append(
+            "The following are user preferences from this thread's settings, "
+            "not operator instructions.\n"
+            f"<user_instructions>\n{sp}\n</user_instructions>"
+        )
+    titles = [t.get("title", "") for t in open_tasks[:_TASK_CAP] if t.get("title")]
+    while titles:
+        block = "<thread_tasks>\n" + "\n".join(f"- {t}" for t in titles) + "\n</thread_tasks>"
+        candidate = "\n\n".join(parts + [block])
+        if len(candidate) <= _PROMPT_CHAR_CAP:
+            return candidate
+        titles.pop()  # drop oldest (front of remaining)
+    # No room for any tasks; return base + optional user_instructions only.
+    return "\n\n".join(parts)
+
+
+def _history_to_messages(rows: list[dict]) -> list[dict[str, str]]:
+    """Map DB rows → LLM messages list. Skips system/tool rows."""
+    out: list[dict[str, str]] = []
+    for r in rows:
+        role = r.get("role")
+        if role == "user":
+            out.append({"role": "user", "content": r.get("content", "")})
+        elif role == "ai":
+            out.append({"role": "assistant", "content": r.get("content", "")})
+    return out
+
+
+def _generate_ai_reply(
+    db: Client,
+    user_id: str,
+    thread_row: dict,
+    user_message_row: dict,
+) -> dict:
+    """Build prompt, call LLM, insert AI row (or system-error row on failure).
+
+    Returns the inserted row. Failures never raise — we always return some row.
+    """
+    thread_id = thread_row["id"]
+
+    # Load profile (for model preference) — may be missing.
+    profile_row = (
+        db.table("v2_profiles")
+        .select("preferred_chat_model")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+        .data
+    ) or {}
+
+    # Load open / in_progress tasks (oldest first by position).
+    task_rows = (
+        db.table("v2_tasks")
+        .select("title, status, position")
+        .eq("thread_id", thread_id)
+        .in_("status", ["open", "in_progress"])
+        .order("position")
+        .execute()
+        .data or []
+    )
+
+    # Load last N messages (chronological, including the user row we just inserted).
+    history_rows = (
+        db.table("v2_thread_messages")
+        .select("role, content, created_at")
+        .eq("thread_id", thread_id)
+        .in_("role", ["user", "ai"])
+        .order("created_at", desc=True)
+        .limit(_HISTORY_LIMIT)
+        .execute()
+        .data or []
+    )
+    history_rows = list(reversed(history_rows))  # chronological
+
+    system = _assemble_system_prompt(thread_row, task_rows)
+    messages = _history_to_messages(history_rows)
+
+    # If even the system prompt + history is enormous, trim history to last 15.
+    if sum(len(m["content"]) for m in messages) + len(system) > _PROMPT_CHAR_CAP:
+        messages = messages[-_HISTORY_FALLBACK_LIMIT:]
+
+    try:
+        provider, model = llm.resolve_model(
+            thread_row.get("chat_model"),
+            profile_row.get("preferred_chat_model"),
+        )
+        reply_text = llm.chat_complete(provider, model, system, messages)
+        if not reply_text:
+            reply_text = "(no reply)"
+        ai_row = (
+            db.table("v2_thread_messages")
+            .insert({
+                "thread_id": thread_id,
+                "role": "ai",
+                "content": reply_text,
+                "meta": {"model": f"{provider}:{model}"},
+            })
+            .execute()
+            .data[0]
+        )
+        return ai_row
+    except Exception as e:  # noqa: BLE001 — explicit broad catch for LLM failure
+        err = str(e)[:500]
+        try:
+            err_row = (
+                db.table("v2_thread_messages")
+                .insert({
+                    "thread_id": thread_id,
+                    "role": "system",
+                    "content": f"AI reply failed: {err}",
+                    "meta": {"error": True},
+                })
+                .execute()
+                .data[0]
+            )
+            return err_row
+        except Exception:
+            # Last-ditch synthetic row so callers can still return a shape.
+            return {
+                "id": "ephemeral-error",
+                "thread_id": thread_id,
+                "role": "system",
+                "content": f"AI reply failed: {err}",
+                "task_ref": None,
+                "meta": {"error": True},
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+
+@app.post("/threads/{thread_id}/messages", status_code=201)
 def create_message(thread_id: str, body: CreateMessageBody):
     user_id = get_dev_user_id()
     db = get_supabase()
@@ -1197,7 +1362,37 @@ def create_message(thread_id: str, body: CreateMessageBody):
     if body.role not in ("user", "ai", "system", "tool"):
         raise HTTPException(status_code=422, detail="role must be one of: user, ai, system, tool")
 
-    _assert_thread_owner(db, thread_id, user_id)
+    thread_row = _assert_thread_owner(db, thread_id, user_id)
+
+    # Idempotency check (only meaningful for user-initiated sends).
+    if body.idempotency_key and body.role == "user":
+        existing = (
+            db.table("v2_thread_messages")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .eq("idempotency_key", body.idempotency_key)
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        if existing:
+            user_row = existing[0]
+            # Find the next AI/system row after it, if any.
+            ai_rows = (
+                db.table("v2_thread_messages")
+                .select("*")
+                .eq("thread_id", thread_id)
+                .in_("role", ["ai", "system"])
+                .gte("created_at", user_row["created_at"])
+                .order("created_at")
+                .limit(1)
+                .execute()
+                .data or []
+            )
+            return {
+                "user_message": _row_to_message(user_row),
+                "ai_message": _row_to_message(ai_rows[0]) if ai_rows else None,
+            }
 
     payload: dict[str, Any] = {
         "thread_id": thread_id,
@@ -1207,9 +1402,191 @@ def create_message(thread_id: str, body: CreateMessageBody):
     }
     if body.task_ref is not None:
         payload["task_ref"] = body.task_ref
+    if body.idempotency_key is not None:
+        payload["idempotency_key"] = body.idempotency_key
 
-    row = db.table("v2_thread_messages").insert(payload).execute().data[0]
-    return _row_to_message(row)
+    # Insert-then-fallback to close the TOCTOU window on the dedupe SELECT above.
+    # Two concurrent POSTs with the same (thread_id, idempotency_key) can both
+    # miss the lookup; the partial unique index v2_thread_messages_idem_uniq
+    # then raises on the loser. Catch that, return the winner's cached pair, and
+    # crucially DO NOT call the LLM on the conflict path — the winning request
+    # already did (or will).
+    try:
+        user_row = db.table("v2_thread_messages").insert(payload).execute().data[0]
+    except PostgRESTAPIError as e:
+        msg = str(e)
+        is_dup = (
+            body.idempotency_key
+            and body.role == "user"
+            and ("duplicate key" in msg or "v2_thread_messages_idem_uniq" in msg)
+        )
+        if not is_dup:
+            raise
+        existing = (
+            db.table("v2_thread_messages")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .eq("idempotency_key", body.idempotency_key)
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        if not existing:
+            raise
+        winner = existing[0]
+        ai_rows = (
+            db.table("v2_thread_messages")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .in_("role", ["ai", "system"])
+            .gte("created_at", winner["created_at"])
+            .order("created_at")
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        return {
+            "user_message": _row_to_message(winner),
+            "ai_message": _row_to_message(ai_rows[0]) if ai_rows else None,
+        }
+
+    # Only generate an AI reply for user messages.
+    if body.role != "user":
+        return {
+            "user_message": _row_to_message(user_row),
+            "ai_message": None,
+        }
+
+    ai_row = _generate_ai_reply(db, user_id, thread_row, user_row)
+    return {
+        "user_message": _row_to_message(user_row),
+        "ai_message": _row_to_message(ai_row),
+    }
+
+
+# ── Thread PATCH ──────────────────────────────────────────────────────────────
+
+@app.patch("/threads/{thread_id}", response_model=ThreadOut)
+def patch_thread(thread_id: str, body: PatchThreadBody):
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    existing = _assert_thread_owner(db, thread_id, user_id)
+    set_fields = body.model_fields_set
+    if not set_fields:
+        # No-op: return current row.
+        tasks = (
+            db.table("v2_tasks")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .execute()
+            .data or []
+        )
+        return _row_to_thread(existing, tasks)
+
+    patch: dict[str, Any] = {}
+    errors: list[str] = []
+
+    if "title" in set_fields:
+        if body.title is None or not body.title.strip():
+            errors.append("title must be 1–200 chars")
+        elif len(body.title) > 200:
+            errors.append("title must be 1–200 chars")
+        else:
+            patch["title"] = body.title.strip()
+
+    if "system_prompt" in set_fields:
+        if body.system_prompt is None:
+            patch["system_prompt"] = None
+        elif len(body.system_prompt) > 4000:
+            errors.append("system_prompt must be 0–4000 chars")
+        else:
+            patch["system_prompt"] = body.system_prompt
+
+    if "chat_model" in set_fields:
+        if body.chat_model is None:
+            patch["chat_model"] = None
+        elif body.chat_model not in _VALID_CHAT_MODELS:
+            errors.append(f"chat_model must be null or one of {sorted(_VALID_CHAT_MODELS)}")
+        else:
+            patch["chat_model"] = body.chat_model
+
+    if "coach_id" in set_fields:
+        if body.coach_id is None:
+            errors.append("coach_id cannot be null")
+        elif body.coach_id not in _VALID_COACHES:
+            errors.append(f"coach_id must be one of {sorted(_VALID_COACHES)}")
+        else:
+            patch["coach_id"] = body.coach_id
+
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
+
+    if not patch:
+        tasks = (
+            db.table("v2_tasks")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .execute()
+            .data or []
+        )
+        return _row_to_thread(existing, tasks)
+
+    row = (
+        db.table("v2_threads")
+        .update(patch)
+        .eq("id", thread_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data[0]
+    )
+    tasks = (
+        db.table("v2_tasks")
+        .select("*")
+        .eq("thread_id", thread_id)
+        .execute()
+        .data or []
+    )
+    return _row_to_thread(row, tasks)
+
+
+# ── Transcribe ────────────────────────────────────────────────────────────────
+
+@app.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)) -> dict[str, str]:
+    # Re-assert dev auth so an unauthenticated caller can't burn Whisper quota.
+    get_dev_user_id()
+
+    if file.content_type not in llm.ALLOWED_AUDIO_MIME:
+        raise HTTPException(
+            status_code=415,
+            detail=f"unsupported audio type: {file.content_type!r}. "
+                   f"Allowed: {sorted(llm.ALLOWED_AUDIO_MIME)}",
+        )
+
+    # Stream-read with size cap.
+    max_bytes = llm.MAX_AUDIO_BYTES
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"audio exceeds {max_bytes} byte cap",
+            )
+        chunks.append(chunk)
+    audio_bytes = b"".join(chunks)
+    filename = file.filename or "recording.m4a"
+
+    try:
+        text = llm.transcribe(audio_bytes, filename)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"transcription failed: {e}") from e
+    return {"text": text}
 
 
 if __name__ == "__main__":

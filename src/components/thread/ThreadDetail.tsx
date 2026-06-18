@@ -4,13 +4,15 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { Colors, threadTheme } from '@/constants/theme';
 import { TEMPLATE_REGISTRY } from '@/lib/threadTemplates';
 import type { Task, TaskStatus, Thread, ThreadMessage } from '@/lib/threads';
-import { apiFetch, useDeleteThread, usePatchTask, useSendMessage, useThread } from '@/lib/threads.hooks';
+import { useDeleteThread, usePatchTask, useSendMessage, useThread } from '@/lib/threads.hooks';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
 import { BackIcon, DotsIcon } from '../icons';
 import { SaarthiLogo } from '../SaarthiLogo';
 import { ThreadChat } from './ThreadChat';
 import { ThreadChatTab } from './ThreadChatTab';
+import { ThreadEditSheet } from './ThreadEditSheet';
+import { TaskEditor } from './TaskEditor';
 
 let _localMsgId = 0;
 
@@ -21,6 +23,8 @@ export function ThreadDetail({
   topInset = 50,
   bottomInset = 0,
   embedded = false,
+  pendingComposerText,
+  onPendingComposerTextConsumed,
 }: {
   threadId: string;
   onClose: () => void;
@@ -28,10 +32,15 @@ export function ThreadDetail({
   topInset?: number;
   bottomInset?: number;
   embedded?: boolean;
+  pendingComposerText?: string;
+  onPendingComposerTextConsumed?: () => void;
 }) {
   const [tab, setTab] = useState<'summary' | 'chat'>('summary');
   const [sentCount, setSentCount] = useState(0);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [aiTyping, setAiTyping] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTasksOpen, setEditTasksOpen] = useState(false);
 
   const { thread, tasks, messages, refresh } = useThread(threadId);
 
@@ -99,6 +108,9 @@ export function ThreadDetail({
 
   const handleSendMessage = useCallback(
     async (text: string, taskRef?: string) => {
+      // Switch to chat view so the user immediately sees their message + AI reply
+      // instead of staying on the summary while it happens off-screen.
+      setTab('chat');
       if (taskRef) {
         // Mark the associated task as done optimistically
         setLocalTasks((prev) =>
@@ -116,11 +128,20 @@ export function ThreadDetail({
       };
       setLocalMessages((prev) => [...prev, optimistic]);
       setSentCount((c) => c + 1);
+      setAiTyping(true);
       try {
-        await sendMessage(threadId, text, taskRef);
+        const { user, ai } = await sendMessage(threadId, text, taskRef);
+        // Swap the optimistic stub for the persisted user row and append AI reply.
+        setLocalMessages((prev) => {
+          const next = prev.map((m) => (m.id === optimistic.id ? user : m));
+          if (ai) next.push(ai);
+          return next;
+        });
         setTimeout(() => refresh(), 250);
       } catch (e) {
         console.error('sendMessage failed', e);
+      } finally {
+        setAiTyping(false);
       }
     },
     [sendMessage, threadId, refresh],
@@ -273,6 +294,41 @@ export function ThreadDetail({
             }}
           >
             <Pressable
+              onPress={() => {
+                setOptionsOpen(false);
+                setEditOpen(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Edit thread"
+              style={({ pressed }) => ({
+                flexDirection: 'row', alignItems: 'center', gap: 10,
+                paddingVertical: 13, paddingHorizontal: 14,
+                backgroundColor: pressed ? 'rgba(255,255,255,0.04)' : 'transparent',
+                borderTopLeftRadius: 14, borderTopRightRadius: 14,
+              })}
+            >
+              <Text style={{ fontSize: 16 }}>✎</Text>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.text }}>Edit thread</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setOptionsOpen(false);
+                setEditTasksOpen((v) => !v);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Edit tasks"
+              style={({ pressed }) => ({
+                flexDirection: 'row', alignItems: 'center', gap: 10,
+                paddingVertical: 13, paddingHorizontal: 14,
+                backgroundColor: pressed ? 'rgba(255,255,255,0.04)' : 'transparent',
+              })}
+            >
+              <Text style={{ fontSize: 16 }}>☑</Text>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.text }}>
+                {editTasksOpen ? 'Done editing tasks' : 'Edit tasks'}
+              </Text>
+            </Pressable>
+            <Pressable
               onPress={handleDelete}
               accessibilityRole="button"
               accessibilityLabel="Delete thread"
@@ -300,6 +356,9 @@ export function ThreadDetail({
           onMic={onMic}
           bottomInset={bottomInset}
           sentCount={sentCount}
+          aiTyping={aiTyping}
+          pendingComposerText={pendingComposerText}
+          onPendingComposerTextConsumed={onPendingComposerTextConsumed}
         />
       ) : (
         <>
@@ -308,6 +367,13 @@ export function ThreadDetail({
             contentContainerStyle={{ paddingBottom: 170 }}
             keyboardShouldPersistTaps="handled"
           >
+            {tab === 'summary' && editTasksOpen ? (
+              <TaskEditor
+                threadId={threadId}
+                tasks={localTasks}
+                onChange={(next) => setLocalTasks(next)}
+              />
+            ) : null}
             {tab === 'summary' && config != null ? (
               <config.SummaryView
                 thread={thread}
@@ -322,6 +388,21 @@ export function ThreadDetail({
             ) : null}
           </ScrollView>
 
+          {aiTyping && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: 16,
+                right: 16,
+                bottom: Math.max(bottomInset, 12) + 16 + 64,
+              }}
+            >
+              <Text style={{ fontSize: 12, color: Colors.textFaint, fontStyle: 'italic' }}>
+                Saarthi is typing…
+              </Text>
+            </View>
+          )}
           {/* Composer */}
           <Composer
             accent={theme.color}
@@ -330,9 +411,18 @@ export function ThreadDetail({
             paddingBottom={Math.max(bottomInset, 12) + 16}
             onSend={(text) => handleSendMessage(text).catch(console.error)}
             onMic={onMic}
+            pendingText={pendingComposerText}
+            onPendingTextConsumed={onPendingComposerTextConsumed}
           />
         </>
       )}
+
+      <ThreadEditSheet
+        thread={thread}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => refresh()}
+      />
     </View>
   );
 }

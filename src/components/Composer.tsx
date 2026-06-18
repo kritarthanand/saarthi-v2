@@ -11,6 +11,8 @@ export function Composer({
   accent = Colors.accent,
   hashtag,
   paddingBottom = 100,
+  pendingText,
+  onPendingTextConsumed,
 }: {
   placeholder?: string;
   onSend?: (text: string) => void;
@@ -18,8 +20,21 @@ export function Composer({
   accent?: string;
   hashtag?: string;
   paddingBottom?: number;
+  /**
+   * When a non-empty string lands here (e.g. a transcribed voice clip), the
+   * Composer appends it to the current input value (no auto-send — the user
+   * can still edit). The parent should clear it via onPendingTextConsumed so
+   * it doesn't keep re-inserting on every render.
+   */
+  pendingText?: string;
+  onPendingTextConsumed?: () => void;
 }) {
   const [val, setVal] = useState('');
+  useEffect(() => {
+    if (!pendingText) return;
+    setVal((prev) => (prev ? `${prev} ${pendingText}` : pendingText));
+    onPendingTextConsumed?.();
+  }, [pendingText, onPendingTextConsumed]);
   // The Composer is `position: absolute` so iOS doesn't reflow it when the keyboard
   // appears. Track the keyboard inset manually and pad the bottom by it; KAV doesn't
   // mix well with absolute children.
@@ -61,18 +76,18 @@ export function Composer({
           replying in <Text style={{ color: accent, fontWeight: '600' }}>{hashtag}</Text>
         </Text>
       )}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
         <View
           style={{
             flex: 1,
             flexDirection: 'row',
-            alignItems: 'center',
+            alignItems: 'flex-end',
             gap: 6,
             paddingLeft: 16,
             paddingRight: 6,
             paddingVertical: 6,
             backgroundColor: Colors.bgCardElev,
-            borderRadius: 999,
+            borderRadius: 22,
             borderWidth: 1,
             borderColor: Colors.border,
           }}
@@ -82,9 +97,16 @@ export function Composer({
             onChangeText={setVal}
             placeholder={placeholder}
             placeholderTextColor={Colors.textFaint}
-            onSubmitEditing={send}
-            returnKeyType="send"
-            style={{ flex: 1, color: Colors.text, fontSize: 15, paddingVertical: 8 }}
+            multiline
+            scrollEnabled
+            style={{
+              flex: 1,
+              color: Colors.text,
+              fontSize: 15,
+              paddingVertical: 8,
+              maxHeight: 120,
+              textAlignVertical: 'center',
+            }}
           />
           {val.trim().length > 0 && (
             <Pressable

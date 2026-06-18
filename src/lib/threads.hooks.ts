@@ -16,6 +16,8 @@ type WireThread = {
   archived_at: string | null;
   meta: Record<string, unknown>;
   created_at: string;
+  system_prompt: string | null;
+  chat_model: string | null;
   task_count: number;
   done_count: number;
   points_earned: number;
@@ -65,6 +67,8 @@ function toThread(w: WireThread): Thread {
     archived_at: w.archived_at,
     meta: w.meta,
     created_at: w.created_at,
+    system_prompt: w.system_prompt ?? null,
+    chat_model: w.chat_model ?? null,
     task_count: w.task_count,
     done_count: w.done_count,
     points_earned: w.points_earned,
@@ -325,18 +329,125 @@ export function useDropTask(): (taskId: string) => Promise<Task> {
   }, []);
 }
 
+/** RN-safe uuid v4. Falls back to Math.random if crypto.randomUUID is missing. */
+function uuidv4(): string {
+  const g = globalThis as { crypto?: { randomUUID?: () => string } };
+  if (g.crypto?.randomUUID) return g.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
+ * Send a user message and receive the AI reply in one round-trip.
+ *
+ * Returns `{ user, ai }`. `ai` is `null` for non-user roles (server only
+ * generates an AI reply when role === 'user'); for user sends the backend
+ * always returns a row — either the model reply or a system-role error row.
+ *
+ * Generates an idempotency_key (uuid v4) per send so retried POSTs from a
+ * flaky network / double-tap don't double-bill the LLM.
+ */
 export function useSendMessage(): (
   threadId: string,
   content: string,
   taskRef?: string,
   role?: string,
-) => Promise<ThreadMessage> {
+) => Promise<{ user: ThreadMessage; ai: ThreadMessage | null }> {
   return useCallback(async (threadId, content, taskRef, role = 'user') => {
-    const w = await apiFetch<WireMessage>(`/threads/${threadId}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ role, content, task_ref: taskRef ?? null }),
+    const resp = await apiFetch<{ user_message: WireMessage; ai_message: WireMessage | null }>(
+      `/threads/${threadId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          role,
+          content,
+          task_ref: taskRef ?? null,
+          idempotency_key: uuidv4(),
+        }),
+      },
+    );
+    return {
+      user: toMessage(resp.user_message),
+      ai: resp.ai_message ? toMessage(resp.ai_message) : null,
+    };
+  }, []);
+}
+
+/**
+ * Patch a thread's editable fields.
+ *
+ * PATCH body semantics:
+ * - Omitted key → no change.
+ * - Explicit `null` for `system_prompt` / `chat_model` → clears the column
+ *   (SQL NULL). `title` and `coach_id` reject null (they're required).
+ *
+ * Note: `JSON.stringify({ system_prompt: undefined })` drops the key, which is
+ * the "no change" path. Pass `null` deliberately when the user clears the
+ * field.
+ */
+export function usePatchThread(): (
+  threadId: string,
+  patch: {
+    title?: string;
+    system_prompt?: string | null;
+    chat_model?: string | null;
+    coach_id?: string;
+  },
+) => Promise<Thread> {
+  return useCallback(async (threadId, patch) => {
+    const w = await apiFetch<WireThread>(`/threads/${threadId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
     });
-    return toMessage(w);
+    return toThread(w);
+  }, []);
+}
+
+/**
+ * Upload an audio recording (file:// URI from expo-audio) to /transcribe and
+ * return the transcript text. The FormData entry uses the RN-only
+ * { uri, type, name } shape — NOT a Blob.
+ */
+export function useTranscribe(): (
+  audio: { uri: string; type?: string; name?: string },
+) => Promise<string> {
+  return useCallback(async ({ uri, type = 'audio/m4a', name = 'recording.m4a' }) => {
+    const { getProxyUrl } = await import('./config');
+    const base = await getProxyUrl();
+    // Expo SDK 56's WinterCG fetch rejects the legacy RN `{uri, name, type}`
+    // FormData part shape ("Unsupported FormDataPart implementation"). Route the
+    // upload through XMLHttpRequest, which uses RN's native networking layer
+    // and still accepts that shape.
+    const form = new FormData();
+    form.append('file', { uri, type, name } as unknown as Blob);
+    return await new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${base}/transcribe`);
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const json = JSON.parse(xhr.responseText) as { text: string };
+            resolve(json.text ?? '');
+          } catch (e) {
+            reject(new Error(`bad json from /transcribe: ${String(e)}`));
+          }
+        } else {
+          let detail = `HTTP ${xhr.status}`;
+          try {
+            const body = JSON.parse(xhr.responseText) as { detail?: unknown };
+            if (typeof body.detail === 'string') detail = body.detail;
+          } catch {
+            /* keep generic */
+          }
+          reject(Object.assign(new Error(detail), { status: xhr.status }));
+        }
+      };
+      xhr.onerror = () => reject(new Error('network error during /transcribe'));
+      xhr.send(form);
+    });
   }, []);
 }
 

@@ -6,10 +6,12 @@ import { SaarthiLogo } from './SaarthiLogo';
 
 export function AppHeader({
   title,
+  subtitle,
   right,
   topInset = 52,
 }: {
   title: string;
+  subtitle?: string;
   right?: string | React.ReactNode;
   topInset?: number;
 }) {
@@ -26,9 +28,16 @@ export function AppHeader({
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <SaarthiLogo size={28} />
-        <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.text, letterSpacing: -0.5 }}>
-          {title}
-        </Text>
+        <View>
+          <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.text, letterSpacing: -0.5 }}>
+            {title}
+          </Text>
+          {subtitle ? (
+            <Text style={{ fontSize: 13, color: Colors.textDim, fontWeight: '500', marginTop: 2 }}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
       </View>
       {right != null ? (
         typeof right === 'string' ? (

@@ -3,7 +3,7 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
 import { TEMPLATE_REGISTRY } from '@/lib/threadTemplates';
-import type { Task, TaskStatus, Thread, ThreadMessage } from '@/lib/threads';
+import { formatScheduledRange, type Task, type TaskStatus, type Thread, type ThreadMessage } from '@/lib/threads';
 import { apiFetch, useDeleteThread, usePatchTask, useSendMessage, useThread } from '@/lib/threads.hooks';
 import { Composer } from '../Composer';
 import { Hashtag } from '../Hashtag';
@@ -179,7 +179,7 @@ export function ThreadDetail({
         <View style={{ flex: 1, gap: 1 }}>
           <Hashtag tag={thread.tag} size="xl" />
           <Text style={{ fontSize: 12, color: Colors.textFaint, fontWeight: '500', paddingLeft: 18 }}>
-            {thread.title}
+            {[thread.title, formatScheduledRange(thread)].filter(Boolean).join(' · ')}
           </Text>
         </View>
         <Pressable

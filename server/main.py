@@ -76,6 +76,9 @@ class ThreadOut(BaseModel):
     archived_at: str | None
     meta: dict[str, Any]
     created_at: str
+    updated_at: str
+    scheduled_start_time: str | None = None  # 'HH:MM' wall-clock local
+    scheduled_end_time: str | None = None    # 'HH:MM' wall-clock local
     task_count: int = 0
     done_count: int = 0
     points_earned: int = 0
@@ -115,6 +118,14 @@ class CreateThreadBody(BaseModel):
     template: str  # must be in API_TEMPLATES (freeform, workout_logging, focus_time)
     title: str | None = None
     coach_id: str | None = None  # defaults to DEFAULT_COACHES[template]
+    scheduled_start_time: str | None = None  # 'HH:MM' (optional, ritual templates default)
+    scheduled_end_time: str | None = None    # 'HH:MM' (optional)
+
+
+class PatchThreadBody(BaseModel):
+    title: str | None = None
+    scheduled_start_time: str | None = None
+    scheduled_end_time: str | None = None
 
 
 class OccurrenceBody(BaseModel):
@@ -191,6 +202,11 @@ THREAD_TITLES: dict[str, str] = {
     "focus_time":      "Focus Session",
     "clean_ritual":    "Clean Ritual",
     "catch_up":        "Catch Up",
+}
+
+RITUAL_DEFAULT_START_TIMES: dict[str, str] = {
+    "morning_ritual": "06:00",
+    "evening_ritual": "21:00",
 }
 
 DEFAULT_COACHES: dict[str, str] = {
@@ -457,6 +473,9 @@ def _row_to_thread(
         archived_at=row.get("archived_at"),
         meta=row.get("meta") or {},
         created_at=row["created_at"],
+        updated_at=row.get("updated_at") or row["created_at"],
+        scheduled_start_time=row.get("scheduled_start_time"),
+        scheduled_end_time=row.get("scheduled_end_time"),
         task_count=task_count,
         done_count=done_count,
         points_earned=points_earned,
@@ -522,6 +541,7 @@ def _upsert_occurrence(db: Client, user_id: str, template: str, period_key: str)
                 "title": title,
                 "period_key": period_key,
                 "coach_id": coach_id,
+                "scheduled_start_time": RITUAL_DEFAULT_START_TIMES.get(template),
                 "meta": {},
             })
             .execute()
@@ -1020,6 +1040,8 @@ def create_thread(body: CreateThreadBody):
             "title": title,
             "coach_id": coach_id,
             "period_key": None,
+            "scheduled_start_time": body.scheduled_start_time or RITUAL_DEFAULT_START_TIMES.get(body.template),
+            "scheduled_end_time": body.scheduled_end_time,
             "meta": {},
         })
         .execute()
@@ -1044,6 +1066,35 @@ def delete_thread(thread_id: str):
     _assert_thread_owner(db, thread_id, user_id)
     # Tasks and messages are cascade-deleted by the DB FK constraints.
     db.table("v2_threads").delete().eq("id", thread_id).eq("user_id", user_id).execute()
+
+
+@app.patch("/threads/{thread_id}", response_model=ThreadOut)
+def patch_thread(thread_id: str, body: PatchThreadBody):
+    user_id = get_dev_user_id()
+    db = get_supabase()
+    _assert_thread_owner(db, thread_id, user_id)
+
+    patch = body.model_dump(exclude_unset=True)
+    if not patch:
+        thread_row = _assert_thread_owner(db, thread_id, user_id)
+        return _row_to_thread(thread_row, [])
+
+    row = (
+        db.table("v2_threads")
+        .update(patch)
+        .eq("id", thread_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data[0]
+    )
+    tasks = (
+        db.table("v2_tasks")
+        .select("*")
+        .eq("thread_id", thread_id)
+        .execute()
+        .data or []
+    )
+    return _row_to_thread(row, tasks)
 
 
 @app.get("/threads/{thread_id}")

@@ -16,6 +16,9 @@ type WireThread = {
   archived_at: string | null;
   meta: Record<string, unknown>;
   created_at: string;
+  updated_at: string;
+  scheduled_start_time: string | null;
+  scheduled_end_time: string | null;
   task_count: number;
   done_count: number;
   points_earned: number;
@@ -65,6 +68,9 @@ function toThread(w: WireThread): Thread {
     archived_at: w.archived_at,
     meta: w.meta,
     created_at: w.created_at,
+    updated_at: w.updated_at ?? w.created_at,
+    scheduled_start_time: w.scheduled_start_time ?? null,
+    scheduled_end_time: w.scheduled_end_time ?? null,
     task_count: w.task_count,
     done_count: w.done_count,
     points_earned: w.points_earned,

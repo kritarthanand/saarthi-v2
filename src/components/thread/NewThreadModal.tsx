@@ -113,7 +113,7 @@ export function NewThreadModal({
       {/* Template list */}
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: isCompact ? 16 : 20, gap: isCompact ? 10 : 14 }}
+        contentContainerStyle={{ padding: isCompact ? 16 : 20, gap: isCompact ? 12 : 14 }}
         showsVerticalScrollIndicator={false}
       >
         {Object.entries(TEMPLATE_REGISTRY).map(([key, config]) => {
@@ -130,61 +130,67 @@ export function NewThreadModal({
                 backgroundColor: pressed && !creating ? Colors.bgCardElev : Colors.bgCard,
                 borderColor: Colors.border,
                 borderWidth: 1,
-                borderRadius: 16,
-                padding: isCompact ? 16 : 20,
-                flexDirection: 'row',
-                gap: isCompact ? 14 : 18,
-                alignItems: 'center',
+                borderRadius: 14,
+                paddingVertical: isCompact ? 16 : 18,
+                paddingHorizontal: isCompact ? 16 : 20,
                 opacity: creating && !isLoading ? 0.4 : 1,
               })}
             >
-              {/* Color swatch */}
-              <View
-                style={{
-                  width: isCompact ? 44 : 54, height: isCompact ? 44 : 54,
-                  borderRadius: isCompact ? 12 : 14,
-                  backgroundColor: theme.dim,
-                  borderColor: theme.color + '40', borderWidth: 1,
-                  alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <Text style={{ fontSize: isCompact ? 20 : 26, color: theme.color }}>{theme.glyph}</Text>
-              </View>
-
-              {/* Content */}
-              <View style={{ flex: 1, gap: isCompact ? 3 : 5 }}>
-                <Text style={{ fontSize: isCompact ? 15 : 17, fontWeight: '600', color: Colors.text, letterSpacing: -0.2 }}>
-                  {config.title}
-                </Text>
-                <Text style={{ fontSize: isCompact ? 12.5 : 14, color: Colors.textDim, lineHeight: isCompact ? 17 : 20 }}>
-                  {TEMPLATE_DESCRIPTIONS[key] ?? ''}
-                </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                {/* Color swatch */}
                 <View
                   style={{
-                    alignSelf: 'flex-start',
-                    marginTop: isCompact ? 3 : 4,
-                    paddingVertical: isCompact ? 3 : 4, paddingHorizontal: isCompact ? 8 : 10,
-                    borderRadius: 999,
-                    backgroundColor: theme.color + '18',
-                    borderColor: theme.color + '35', borderWidth: 1,
+                    width: 48, height: 48,
+                    borderRadius: 12,
+                    backgroundColor: theme.dim,
+                    borderColor: theme.color + '40', borderWidth: 1,
+                    alignItems: 'center', justifyContent: 'center',
                   }}
                 >
-                  <Text style={{ fontSize: isCompact ? 10.5 : 12, fontWeight: '700', color: theme.color, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                    {CADENCE_LABEL[config.cadence]}
+                  <Text style={{ fontSize: 22, color: theme.color }}>{theme.glyph}</Text>
+                </View>
+
+                {/* Title + description (two lines) */}
+                <View style={{ flex: 1, gap: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Text
+                      numberOfLines={1}
+                      style={{ flexShrink: 1, fontSize: 16, fontWeight: '600', color: Colors.text, letterSpacing: -0.2 }}
+                    >
+                      {config.title}
+                    </Text>
+                    <View
+                      style={{
+                        paddingVertical: 3, paddingHorizontal: 8,
+                        borderRadius: 999,
+                        backgroundColor: theme.color + '18',
+                        borderColor: theme.color + '35', borderWidth: 1,
+                      }}
+                    >
+                      <Text style={{ fontSize: 10.5, fontWeight: '700', color: theme.color, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                        {CADENCE_LABEL[config.cadence]}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={{ fontSize: 13, color: Colors.textDim }}
+                  >
+                    {TEMPLATE_DESCRIPTIONS[key] ?? ''}
                   </Text>
                 </View>
-              </View>
 
-              {/* State indicator */}
-              {isLoading ? (
-                <ActivityIndicator size="small" color={theme.color} />
-              ) : (
-                <Text style={{ fontSize: isCompact ? 20 : 24, color: Colors.textFaint, lineHeight: isCompact ? 24 : 28 }}>›</Text>
-              )}
+                {/* State indicator */}
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={theme.color} />
+                ) : (
+                  <Text style={{ fontSize: 20, color: Colors.textFaint, lineHeight: 22 }}>›</Text>
+                )}
+              </View>
             </Pressable>
           );
         })}
-        <View style={{ height: 32 }} />
+        <View style={{ height: 24 }} />
       </ScrollView>
     </View>
   );

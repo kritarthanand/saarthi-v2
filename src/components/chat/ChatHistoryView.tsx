@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, View, StyleSh
 
 import { Colors, threadTheme } from '@/constants/theme';
 import { useProfile } from '@/hooks/useProfile';
-import type { Thread } from '@/lib/threads';
+import { formatScheduledRange, type Thread } from '@/lib/threads';
 import { useThreads } from '@/lib/threads.hooks';
 import { AppHeader } from '../AppHeader';
 import { ChevRightIcon } from '../icons';
@@ -23,6 +23,21 @@ function formatTime(isoString: string): string {
   const ampm = h >= 12 ? 'PM' : 'AM';
   h = h % 12 || 12;
   return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
+
+function threadRowTime(t: Thread): string {
+  return formatScheduledRange(t) ?? formatTime(t.created_at);
+}
+
+// Sort key for ordering threads within a day — scheduled start (minutes since
+// midnight) when present, else minutes-from-created_at as a fallback.
+function threadSortKey(t: Thread): number {
+  if (t.scheduled_start_time) {
+    const [h, m] = t.scheduled_start_time.split(':').map((s) => parseInt(s, 10));
+    return h * 60 + m;
+  }
+  const d = new Date(t.created_at);
+  return d.getHours() * 60 + d.getMinutes();
 }
 
 // Returns a YYYY-MM-DD key adjusted for day_start_hour.
@@ -70,7 +85,7 @@ function groupByDay(threads: Thread[], dayStartHour: number): DayGroup[] {
   return [...map.entries()].map(([dateKey, ts]) => ({
     dateKey,
     label: dayLabel(dateKey, dayStartHour),
-    threads: ts,
+    threads: [...ts].sort((a, b) => threadSortKey(a) - threadSortKey(b)),
   }));
 }
 
@@ -224,7 +239,7 @@ export function ChatHistoryView({
                 <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 }}>
                   <Text style={{ fontSize: 14, color: theme.color, fontWeight: '700' }}>{t.tag}</Text>
                   <Text style={{ fontSize: 11, color: Colors.textFaint, fontWeight: '500' }}>
-                    {formatTime(t.created_at)}
+                    {threadRowTime(t)}
                   </Text>
                 </View>
                 <Text numberOfLines={1} style={{ fontSize: 12.5, color: Colors.textDim, fontWeight: '500' }}>

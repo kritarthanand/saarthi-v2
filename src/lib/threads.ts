@@ -26,6 +26,10 @@ export type Thread = {
   archived_at: string | null;
   meta: Record<string, unknown>;
   created_at: string;
+  updated_at: string;
+  // 'HH:MM' wall-clock local. Rituals default (morning 06:00, evening 21:00).
+  scheduled_start_time: string | null;
+  scheduled_end_time: string | null;
   // Computed by server
   task_count: number;
   done_count: number;
@@ -55,6 +59,22 @@ export type Task = {
   created_at: string;
   updated_at: string;
 };
+
+// 'HH:MM' (24h) → '6:00 AM'
+export function formatWallClock(hhmm: string): string {
+  const [hStr, mStr] = hhmm.split(':');
+  let h = parseInt(hStr, 10);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${mStr} ${ampm}`;
+}
+
+export function formatScheduledRange(t: Pick<Thread, 'scheduled_start_time' | 'scheduled_end_time'>): string | null {
+  if (!t.scheduled_start_time) return null;
+  const start = formatWallClock(t.scheduled_start_time);
+  if (t.scheduled_end_time) return `${start} – ${formatWallClock(t.scheduled_end_time)}`;
+  return start;
+}
 
 export type MessageRole = 'user' | 'ai' | 'system' | 'tool';
 

@@ -45,7 +45,7 @@ class KnowledgeSource(ABC):
         import json
 
         path = self._dir / "manifest.json"
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
 
     @property
     def manifest(self) -> dict[str, Any]:
@@ -63,7 +63,7 @@ class KnowledgeSource(ABC):
         if not rel:
             return ""
         path = self._dir / rel
-        return path.read_text() if path.exists() else ""
+        return path.read_text(encoding="utf-8") if path.exists() else ""
 
     # -- subclasses must implement these ------------------------------------
     @abstractmethod
@@ -104,6 +104,9 @@ class _RecipesSource(KnowledgeSource):
             "kind": "food",
             "id": f.id,
             "name": f.name,
+            # Surface provenance so the agent can flag estimated macros vs
+            # label/USDA-verified ones (usda | nutrition_label | estimate).
+            "source": f.source,
             "basis": {"per": f.basis.per, "unit": f.basis.unit},
             "serving_label": f.serving_label,
             "macros": f.macros.model_dump(),

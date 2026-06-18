@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -38,7 +39,7 @@ def _round(x: float) -> float:
 
 
 def load_foods(path: Path = FOODS_PATH) -> dict[str, Food]:
-    raw = json.loads(path.read_text()) or []
+    raw = json.loads(path.read_text(encoding="utf-8")) or []
     foods = [Food.model_validate(item) for item in raw]
     by_id: dict[str, Food] = {}
     for f in foods:
@@ -49,7 +50,7 @@ def load_foods(path: Path = FOODS_PATH) -> dict[str, Food]:
 
 
 def load_recipes(path: Path = RECIPES_PATH) -> list[Recipe]:
-    raw = json.loads(path.read_text()) or []
+    raw = json.loads(path.read_text(encoding="utf-8")) or []
     recipes = [Recipe.model_validate(item) for item in raw]
     seen: set[str] = set()
     for r in recipes:
@@ -60,28 +61,33 @@ def load_recipes(path: Path = RECIPES_PATH) -> list[Recipe]:
 
 
 def validate(foods: dict[str, Food], recipes: list[Recipe]) -> None:
-    """Cross-check references and uniqueness across both namespaces."""
-    aliases: dict[str, tuple[str, str]] = {}
+    """Cross-check ingredient references and enforce alias uniqueness.
 
-    def claim(alias: str, kind: str, owner: str) -> None:
+    Uniqueness is enforced *per namespace* — foods among foods, recipes among
+    recipes — because the runtime resolves them through separate caches
+    (`get_food` vs `get_recipe`). A food and a recipe may share an alias without
+    conflicting at runtime, so we don't reject that here either.
+    """
+    def claim_into(owners: dict[str, str], kind: str, alias: str, owner: str) -> None:
         key = alias.lower()
-        if key in aliases:
-            other_kind, other_owner = aliases[key]
+        if key in owners:
             raise ValueError(
-                f"alias collision: {alias!r} claimed by both "
-                f"{other_kind} {other_owner!r} and {kind} {owner!r}"
+                f"alias collision within {kind}s: {alias!r} claimed by both "
+                f"{owners[key]!r} and {owner!r}"
             )
-        aliases[key] = (kind, owner)
+        owners[key] = owner
 
+    food_aliases: dict[str, str] = {}
     for f in foods.values():
-        claim(f.id, "food", f.id)
+        claim_into(food_aliases, "food", f.id, f.id)
         for a in f.aliases:
-            claim(a, "food", f.id)
+            claim_into(food_aliases, "food", a, f.id)
 
+    recipe_aliases: dict[str, str] = {}
     for r in recipes:
-        claim(r.id, "recipe", r.id)
+        claim_into(recipe_aliases, "recipe", r.id, r.id)
         for a in r.aliases:
-            claim(a, "recipe", r.id)
+            claim_into(recipe_aliases, "recipe", a, r.id)
 
         for ing in r.ingredients:
             if ing.food not in foods:
@@ -162,7 +168,11 @@ def render() -> str:
 
 def write_computed() -> tuple[Path, int]:
     body = render()
-    COMPUTED_PATH.write_text(body)
+    # Write to a temp file then atomically replace, so a concurrent reader (the
+    # runtime's mtime cache) never sees a half-written / truncated JSON file.
+    tmp = COMPUTED_PATH.with_suffix(".tmp")
+    tmp.write_text(body, encoding="utf-8")
+    os.replace(tmp, COMPUTED_PATH)  # atomic on POSIX; near-atomic on Windows
     n = len(json.loads(body).get("recipes", []))
     return COMPUTED_PATH, n
 
@@ -170,7 +180,7 @@ def write_computed() -> tuple[Path, int]:
 def check_computed() -> bool:
     """Return True when the on-disk computed file matches what render() produces."""
     expected = render()
-    actual = COMPUTED_PATH.read_text() if COMPUTED_PATH.exists() else ""
+    actual = COMPUTED_PATH.read_text(encoding="utf-8") if COMPUTED_PATH.exists() else ""
     return expected == actual
 
 

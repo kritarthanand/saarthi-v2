@@ -36,7 +36,7 @@ _COMPUTED_PATH = _PKG / "recipes.computed.json"
 def _read_items(path: Path) -> list[dict]:
     """Read a knowledge data file. Accepts a bare JSON list (foods.json) or a
     wrapped `{"recipes": [...]}` object (recipes.computed.json)."""
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(raw, dict):
         # Use `in` (not `or`) so an intentionally-empty list isn't treated as a
         # missing key, and so an unrecognised wrapper fails loudly instead of

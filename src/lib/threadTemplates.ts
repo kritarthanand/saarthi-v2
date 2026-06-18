@@ -15,6 +15,11 @@ import type { CoachId, Thread, Task, TaskStatus, ThreadMessage } from './threads
 export type TemplateCadence = 'daily' | 'weekly' | 'none';
 export type TemplateCreation = 'scheduled' | 'api';
 
+// Closed set of knowledge-bank source ids the server registers
+// (server/knowledge/<id>/). Keep in sync with the server registry — a typo then
+// becomes a compile error rather than a silently-dropped link.
+export type KnowledgeSourceId = 'recipes';
+
 export type SeedTask = {
   title: string;
   points: number;
@@ -45,7 +50,7 @@ export type TemplateConfig = {
   // Knowledge-bank source ids this template links to (display/docs only — the
   // server is the source of truth, see server/knowledge/links.py
   // TEMPLATE_KNOWLEDGE). Resolved per-thread via GET /threads/{id}/knowledge.
-  knowledge?: string[];
+  knowledge?: KnowledgeSourceId[];
   SummaryView: React.ComponentType<SummaryViewProps>;
 };
 

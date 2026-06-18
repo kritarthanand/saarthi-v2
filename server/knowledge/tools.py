@@ -106,8 +106,16 @@ def _lookup_entry(kind: str, name: str | None) -> dict[str, Any]:
     if src is None:
         return {"error": "recipes knowledge source unavailable"}
     result = src.entry(name)
-    if result is None or result.get("kind") != kind:
+    if result is None:
         return {"error": f"unknown {kind}: {name!r}"}
+    other = result.get("kind")
+    if other != kind:
+        # The name resolved, but to the *other* kind — redirect instead of a dead
+        # end (e.g. query_recipe("chicken thigh") where "chicken thigh" is a food).
+        return {
+            "error": f"unknown {kind}: {name!r}",
+            "hint": f"found as a {other} — try query_{other}",
+        }
     return result
 
 

@@ -1,0 +1,8 @@
+{
+  "id": "recipes",
+  "name": "Recipe & Macro Bank",
+  "description": "A bank of meal-prep recipes and atomic foods with per-serving and total macros (calories, protein, carbs, fat). Used for meal logging and macro tracking.",
+  "kind": "recipes",
+  "guide": "guide.md",
+  "tools": ["query_recipe", "query_food", "search_knowledge"]
+}

@@ -1,0 +1,283 @@
+[
+  {
+    "id": "kirkland_chicken_thigh_raw",
+    "name": "Kirkland Boneless Skinless Chicken Thighs (raw)",
+    "basis": { "per": 100, "unit": "g" },
+    "macros": { "calories": 142.86, "protein_g": 16.96, "carbs_g": 0.89, "fat_g": 8.04 },
+    "source": "nutrition_label",
+    "aliases": ["chicken thigh", "chicken thighs", "kirkland chicken thigh", "raw chicken thigh", "boneless skinless chicken thigh"]
+  },
+  {
+    "id": "kirkland_chicken_breast_raw",
+    "name": "Kirkland Organic Boneless Skinless Chicken Breasts (raw)",
+    "basis": { "per": 100, "unit": "g" },
+    "macros": { "calories": 98.21, "protein_g": 21.43, "carbs_g": 0, "fat_g": 0.89 },
+    "source": "nutrition_label",
+    "aliases": ["chicken breast", "chicken breasts", "kirkland chicken breast", "raw chicken breast", "boneless skinless chicken breast", "organic chicken breast"]
+  },
+  {
+    "id": "norbest_ground_turkey_93_7_raw",
+    "name": "Norbest Fresh Ground Turkey 93/7 (raw)",
+    "basis": { "per": 100, "unit": "g" },
+    "macros": { "calories": 142.86, "protein_g": 20.54, "carbs_g": 0, "fat_g": 7.14 },
+    "source": "nutrition_label",
+    "aliases": ["ground turkey", "turkey", "lean ground turkey", "93/7 ground turkey", "norbest turkey"]
+  },
+  {
+    "id": "yogurt_greek_2pct_plain",
+    "name": "Green Mountain Creamery Organic 2% Plain Greek Yogurt",
+    "basis": { "per": 100, "unit": "g" },
+    "macros": { "calories": 70.59, "protein_g": 8.24, "carbs_g": 4.12, "fat_g": 2.06 },
+    "source": "nutrition_label",
+    "aliases": ["yogurt", "greek yogurt", "2% yogurt", "low-fat yogurt", "plain greek yogurt", "green mountain yogurt"]
+  },
+  {
+    "id": "chobani_greek_yogurt_lowfat_plain",
+    "name": "Chobani Greek Yogurt Lowfat Plain",
+    "basis": { "per": 100, "unit": "g" },
+    "macros": { "calories": 64.71, "protein_g": 8.82, "carbs_g": 4.12, "fat_g": 1.76 },
+    "source": "nutrition_label",
+    "aliases": ["chobani", "chobani yogurt", "chobani lowfat", "chobani plain", "chobani greek yogurt", "lowfat greek yogurt"]
+  },
+  {
+    "id": "tj_roasted_tomato_labneh_dip",
+    "name": "Trader Joe's Roasted Tomato Labneh Dip",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "2 Tbsp (28g)",
+    "macros": { "calories": 45, "protein_g": 1.0, "carbs_g": 3.0, "fat_g": 3.5 },
+    "source": "nutrition_label",
+    "aliases": ["labneh", "labneh dip", "tj labneh", "roasted tomato labneh", "tomato labneh"]
+  },
+  {
+    "id": "tj_roasted_red_pepper_hummus",
+    "name": "Trader Joe's Roasted Red Pepper Hummus",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "2 Tbsp (28g)",
+    "macros": { "calories": 50, "protein_g": 1.0, "carbs_g": 4.0, "fat_g": 3.5 },
+    "source": "nutrition_label",
+    "aliases": ["red pepper hummus", "roasted red pepper hummus", "tj red pepper hummus"]
+  },
+  {
+    "id": "tj_chimichurri_sauce",
+    "name": "Trader Joe's Chimichurri Sauce",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "2 Tbsp (30g)",
+    "macros": { "calories": 110, "protein_g": 0, "carbs_g": 1.0, "fat_g": 11.0 },
+    "source": "nutrition_label",
+    "notes": "Carbs read as ~1g; label obscured in photo, confirm if logging precise carb",
+    "aliases": ["chimichurri", "chimichurri sauce", "tj chimichurri"]
+  },
+  {
+    "id": "tj_zhoug_sauce",
+    "name": "Trader Joe's Zhoug Sauce",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "2 Tbsp (30g)",
+    "macros": { "calories": 90, "protein_g": 1.0, "carbs_g": 3.0, "fat_g": 9.0 },
+    "source": "nutrition_label",
+    "aliases": ["zhoug", "zhoug sauce", "tj zhoug", "yemeni green sauce"]
+  },
+  {
+    "id": "lucerne_mexican_4cheese_shredded",
+    "name": "Lucerne Mexican Style 4 Cheese Blend (Finely Shredded)",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "1/4 cup (28g)",
+    "macros": { "calories": 392.86, "protein_g": 21.43, "carbs_g": 3.57, "fat_g": 28.57 },
+    "source": "nutrition_label",
+    "aliases": ["shredded cheese", "mexican cheese", "mexican blend cheese", "4 cheese blend", "lucerne cheese"]
+  },
+  {
+    "id": "rosarita_refried_beans_organic",
+    "name": "Rosarita Organic Refried Beans (Traditional)",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "1 can (16 oz / 454g)",
+    "macros": { "calories": 420, "protein_g": 21.0, "carbs_g": 59.5, "fat_g": 8.75 },
+    "source": "nutrition_label",
+    "notes": "Encoded per-can (~3.5 label servings). Label: 120 cal / 6P / 17C / 2.5F per 1/2 cup (123g).",
+    "aliases": ["refried beans", "rosarita refried beans", "refried bean can", "beans"]
+  },
+  {
+    "id": "mission_flour_tortilla_burrito",
+    "name": "Mission Flour Tortillas (Burrito Size, Super Soft)",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "1 tortilla (71g)",
+    "macros": { "calories": 210, "protein_g": 6.0, "carbs_g": 35.0, "fat_g": 4.5 },
+    "source": "nutrition_label",
+    "aliases": ["tortilla", "flour tortilla", "burrito tortilla", "mission tortilla", "burrito wrap"]
+  },
+  {
+    "id": "tj_panko_breadcrumbs",
+    "name": "Trader Joe's Japanese Style Panko Breadcrumbs",
+    "basis": { "per": 100, "unit": "g" },
+    "macros": { "calories": 382.35, "protein_g": 11.76, "carbs_g": 82.35, "fat_g": 0 },
+    "source": "nutrition_label",
+    "aliases": ["panko", "breadcrumbs", "panko breadcrumbs", "japanese breadcrumbs"]
+  },
+  {
+    "id": "puravida_fire_roasted_veggie_melange",
+    "name": "PuraVida Fire Roasted Vegetable Mélange (frozen)",
+    "basis": { "per": 100, "unit": "g" },
+    "macros": { "calories": 52.94, "protein_g": 1.18, "carbs_g": 5.88, "fat_g": 2.94 },
+    "source": "nutrition_label",
+    "notes": "Brussels sprouts, red/yellow bell peppers, mushrooms, red onion in EVOO + salt.",
+    "aliases": ["frozen veggies", "fire roasted veggies", "veggie melange", "roasted veggies", "frozen vegetables", "puravida veggies"]
+  },
+  {
+    "id": "kirkland_egg_bites_eggwhite_cheese_redpepper",
+    "name": "Kirkland Sous Vide Egg Bites (Egg White, Cheese Trio & Roasted Red Pepper)",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "1 bite (~59.5g)",
+    "macros": { "calories": 80, "protein_g": 5.5, "carbs_g": 5.5, "fat_g": 4.0 },
+    "source": "nutrition_label",
+    "notes": "Encoded per-bite. Label: 160 cal / 11P / 11C / 8F per 2-piece serving (119g).",
+    "aliases": ["egg bite", "egg bites", "sous vide egg bites", "kirkland egg bites"]
+  },
+  {
+    "id": "premier_protein_shake_vanilla",
+    "name": "Premier Protein Shake (Vanilla)",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "1 shake (11 fl oz / 325 mL)",
+    "macros": { "calories": 160, "protein_g": 30.0, "carbs_g": 3.0, "fat_g": 3.0 },
+    "source": "nutrition_label",
+    "aliases": ["premier protein", "premier shake", "vanilla protein shake", "protein shake", "premier vanilla"]
+  },
+  {
+    "id": "built_puff_brownie_batter",
+    "name": "Built Puff Protein Bar (Brownie Batter)",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "1 bar (40g)",
+    "macros": { "calories": 140, "protein_g": 17.0, "carbs_g": 14.0, "fat_g": 2.5 },
+    "source": "nutrition_label",
+    "aliases": ["built bar", "built puff", "brownie batter bar", "built protein bar", "protein bar", "built puff brownie"]
+  },
+  {
+    "id": "barebells_chocolate_dough",
+    "name": "Barebells Protein Bar (Chocolate Dough)",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "1 bar (55g)",
+    "macros": { "calories": 200, "protein_g": 20.0, "carbs_g": 20.0, "fat_g": 7.0 },
+    "source": "nutrition_label",
+    "notes": "20g total carbs incl. 6g sugar alcohols (maltitol) + 3g fiber → net carbs ~11g. Excess maltitol may cause GI issues.",
+    "aliases": ["barebells", "barebells bar", "chocolate dough bar", "barebells chocolate", "barebells protein bar"]
+  },
+  {
+    "id": "lean_cuisine_five_cheese_rigatoni",
+    "name": "Lean Cuisine Five Cheese Rigatoni",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "1 package (10 oz / 283g)",
+    "macros": { "calories": 350, "protein_g": 14.0, "carbs_g": 54.0, "fat_g": 9.0 },
+    "source": "nutrition_label",
+    "aliases": ["rigatoni", "cheese rigatoni", "five cheese rigatoni", "lean cuisine rigatoni", "lean cuisine pasta", "frozen pasta", "red pasta", "frozen red pasta"]
+  },
+  {
+    "id": "lean_cuisine_vermont_white_cheddar_mac",
+    "name": "Lean Cuisine Vermont White Cheddar Mac & Cheese",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "1 package (8 oz / 226g)",
+    "macros": { "calories": 270, "protein_g": 17.0, "carbs_g": 35.0, "fat_g": 7.0 },
+    "source": "nutrition_label",
+    "aliases": ["mac and cheese", "mac n cheese", "white cheddar mac", "vermont mac", "lean cuisine mac", "frozen mac", "mac cheese", "white pasta"]
+  },
+  {
+    "id": "shastha_quinoa_dry",
+    "name": "Shastha's Quinoa Traditional (dry, uncooked)",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "1/4 cup dry (45g) → ~1/2 cup cooked",
+    "macros": { "calories": 422.22, "protein_g": 17.78, "carbs_g": 82.22, "fat_g": 2.22 },
+    "source": "nutrition_label",
+    "notes": "Weigh dry before cooking; macros don't change with water. 45g dry → ~135g cooked.",
+    "aliases": ["quinoa", "dry quinoa", "shastha quinoa", "traditional quinoa", "raw quinoa"]
+  },
+  {
+    "id": "toor_dal_dry",
+    "name": "Toor Dal (dry, uncooked)",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "1/4 cup dry (50g) → ~3/4 cup cooked dal",
+    "macros": { "calories": 350, "protein_g": 22.0, "carbs_g": 62.0, "fat_g": 1.6 },
+    "source": "nutrition_label",
+    "notes": "Weigh dry before cooking. 50g dry → ~150g cooked dal, before tadka.",
+    "aliases": ["toor dal", "arhar dal", "tur dal", "pigeon pea", "yellow dal", "dal", "dry toor dal"]
+  },
+  {
+    "id": "kirkland_sea_salt_popcorn",
+    "name": "Kirkland Sea Salt Popcorn (Coconut Oil)",
+    "basis": { "per": 1, "unit": "serving" },
+    "serving_label": "1 bag (18g)",
+    "macros": { "calories": 100, "protein_g": 1.0, "carbs_g": 9.0, "fat_g": 6.0 },
+    "source": "nutrition_label",
+    "aliases": ["popcorn", "kirkland popcorn", "sea salt popcorn", "coconut oil popcorn", "costco popcorn", "kirkland sea salt popcorn"]
+  },
+  {
+    "id": "kirkland_organic_blueberries_frozen",
+    "name": "Kirkland Organic Blueberries (frozen)",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "1 cup (140g)",
+    "macros": { "calories": 50.0, "protein_g": 0.71, "carbs_g": 12.14, "fat_g": 0.71 },
+    "source": "nutrition_label",
+    "aliases": ["blueberries", "frozen blueberries", "kirkland blueberries", "organic blueberries", "blueberry"]
+  },
+  {
+    "id": "natures_touch_dark_sweet_cherries_frozen",
+    "name": "Nature's Touch Dark Sweet Cherries (frozen, pitted)",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "20 pieces (138g)",
+    "macros": { "calories": 65.22, "protein_g": 0.72, "carbs_g": 15.94, "fat_g": 0 },
+    "source": "nutrition_label",
+    "aliases": ["cherries", "frozen cherries", "dark sweet cherries", "natures touch cherries", "ripe and ready cherries", "pitted cherries"]
+  },
+  {
+    "id": "basmati_rice_dry",
+    "name": "Basmati Rice (dry, uncooked)",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "1/4 cup dry (45g) → ~3/4 cup cooked",
+    "macros": { "calories": 355.56, "protein_g": 6.67, "carbs_g": 80.0, "fat_g": 0 },
+    "source": "nutrition_label",
+    "notes": "Weigh dry before cooking; macros don't change with water.",
+    "aliases": ["basmati", "basmati rice", "dry basmati", "dry basmati rice", "white basmati", "long grain basmati"]
+  },
+  {
+    "id": "frozen_mixed_vegetables",
+    "name": "Frozen Mixed Vegetables (peas, carrots, corn, green beans)",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "2/3 cup (85g)",
+    "macros": { "calories": 70.59, "protein_g": 3.53, "carbs_g": 14.12, "fat_g": 0 },
+    "source": "nutrition_label",
+    "aliases": ["mixed vegetables", "mixed veg", "frozen mixed veg", "frozen mixed vegetables", "peas carrots corn", "mixed veggies blend"]
+  },
+  {
+    "id": "ginger_garlic_paste",
+    "name": "Ginger Garlic Paste",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "1 tsp (~5g)",
+    "macros": { "calories": 100, "protein_g": 2.0, "carbs_g": 20.0, "fat_g": 1.0 },
+    "source": "estimate",
+    "aliases": ["ginger paste", "garlic paste", "ginger-garlic paste", "ginger and garlic paste"]
+  },
+  {
+    "id": "soy_sauce_light",
+    "name": "Light Soy Sauce",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "1 tbsp (~17g)",
+    "macros": { "calories": 58, "protein_g": 11.6, "carbs_g": 5.8, "fat_g": 0 },
+    "source": "nutrition_label",
+    "aliases": ["soy sauce", "light soy", "regular soy sauce", "thin soy sauce", "kikkoman soy sauce"]
+  },
+  {
+    "id": "sesame_oil_toasted",
+    "name": "Toasted Sesame Oil",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "1 tsp (~4.5g)",
+    "macros": { "calories": 884, "protein_g": 0, "carbs_g": 0, "fat_g": 100 },
+    "source": "usda",
+    "aliases": ["sesame oil", "dark sesame oil", "asian sesame oil", "finishing sesame oil"]
+  },
+  {
+    "id": "olive_oil_light",
+    "name": "Light Olive Oil",
+    "basis": { "per": 100, "unit": "g" },
+    "serving_label": "1 tbsp (~14g)",
+    "macros": { "calories": 884, "protein_g": 0, "carbs_g": 0, "fat_g": 100 },
+    "source": "usda",
+    "notes": "\"Light\" refers to flavor, not calories. USDA 04053.",
+    "aliases": ["olive oil", "light tasting olive oil", "refined olive oil", "cooking olive oil"]
+  }
+]

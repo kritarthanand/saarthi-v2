@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -6,13 +7,18 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from postgrest.exceptions import APIError as PostgRESTAPIError
 from supabase import create_client, Client
 
+from knowledge.context import assemble_thread_knowledge
+from knowledge.sources import get_source, list_sources
+
 load_dotenv()
+
+logger = logging.getLogger("saarthi.v2")
 
 _scheduler = BackgroundScheduler(timezone="UTC")
 
@@ -1209,7 +1215,104 @@ def create_message(thread_id: str, body: CreateMessageBody):
         payload["task_ref"] = body.task_ref
 
     row = db.table("v2_thread_messages").insert(payload).execute().data[0]
+
+    # ── Knowledge context seam (stub) ──────────────────────────────────────────
+    # When the LLM runtime lands, a user turn triggers an assistant reply whose
+    # prompt is assembled server-side (THREADS.md §5). The knowledge half of that
+    # assembly is ready now: for any thread linked to a knowledge source, this
+    # resolves the preamble + tool specs the model should be given. We compute it
+    # here so the wiring is exercised, but nothing consumes it yet.
+    # TODO: feed `ctx` (+ recent messages + system prompt) to the LLM and stream
+    #       the assistant reply, instead of returning only the persisted user row.
+    if body.role == "user":
+        try:
+            _ = assemble_thread_knowledge(thread_row.get("template"), thread_row.get("meta"))
+        except Exception:
+            # Knowledge assembly must never block message persistence — but log the
+            # traceback so failures aren't silently swallowed once `ctx` is wired
+            # to the model.
+            logger.exception("knowledge assembly failed for thread %s", thread_id)
+
     return _row_to_message(row)
+
+
+# ── Knowledge banks ─────────────────────────────────────────────────────────────
+
+@app.get("/knowledge/sources")
+def list_knowledge_sources() -> dict:
+    """List the registered knowledge sources (banks threads can link to)."""
+    return {"sources": [s.manifest for s in list_sources()]}
+
+
+@app.get("/knowledge/{source_id}/search")
+def search_knowledge(source_id: str, q: str = Query(..., min_length=1)):
+    """Generic search over a knowledge source by free-text query.
+
+    `q` is required and non-empty: an empty query would return the whole catalog,
+    which is almost always an accidental omission rather than intent (422 instead).
+    """
+    source = get_source(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"unknown knowledge source: {source_id}")
+    return {"source": source_id, "query": q, "results": source.search(q)}
+
+
+def _recipes_source():
+    """Return the recipes source, or 503 if it isn't registered (import/startup
+    failure). Keeps the endpoints from raising a bare AttributeError on None."""
+    src = get_source("recipes")
+    if src is None:
+        raise HTTPException(status_code=503, detail="recipes knowledge source unavailable")
+    return src
+
+
+def _entry_or_404(kind: str, id_or_alias: str) -> dict:
+    """Look a single entry up through the source's public `entry()` API and
+    enforce its kind, so /recipes only returns recipes and /foods only foods."""
+    result = _recipes_source().entry(id_or_alias)
+    if result is None or result.get("kind") != kind:
+        raise HTTPException(status_code=404, detail=f"unknown {kind}: {id_or_alias}")
+    return result
+
+
+@app.get("/recipes")
+def list_recipes_endpoint():
+    """The meal list — every recipe with per-serving + total macros."""
+    return {"recipes": _recipes_source().meals()}
+
+
+@app.get("/recipes/{id_or_alias}")
+def get_recipe_endpoint(id_or_alias: str):
+    return _entry_or_404("recipe", id_or_alias)
+
+
+@app.get("/foods")
+def list_foods_endpoint():
+    return {"foods": _recipes_source().foods()}
+
+
+@app.get("/foods/{id_or_alias}")
+def get_food_endpoint(id_or_alias: str):
+    return _entry_or_404("food", id_or_alias)
+
+
+@app.get("/threads/{thread_id}/knowledge")
+def get_thread_knowledge(thread_id: str):
+    """Resolve the knowledge a thread links to — what the agent would be given.
+
+    Returns the linked source ids, the assembled markdown preamble, and the
+    tool specs to expose. Drives both debugging and the future prompt assembly.
+    """
+    user_id = get_dev_user_id()
+    db = get_supabase()
+    thread_row = _assert_thread_owner(db, thread_id, user_id)
+    ctx = assemble_thread_knowledge(thread_row.get("template"), thread_row.get("meta"))
+    return {
+        "thread_id": thread_id,
+        "source_ids": ctx.source_ids,
+        "preamble": ctx.preamble,
+        "tools": ctx.tools,
+    }
 
 
 if __name__ == "__main__":

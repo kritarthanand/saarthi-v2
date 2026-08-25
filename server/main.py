@@ -6,13 +6,22 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Header, HTTPException, Response, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from postgrest.exceptions import APIError as PostgRESTAPIError
 from supabase import create_client, Client
 
 import llm
+import obsidian
 
 load_dotenv()
 
@@ -157,6 +166,20 @@ class CreateMessageBody(BaseModel):
     task_ref: str | None = None
     meta: dict[str, Any] = {}
     idempotency_key: str | None = None
+    # Voice segments post with reply=False so a multi-segment sitting gets one
+    # reply at the end (via POST /threads/{id}/reply) instead of one per clip.
+    # Defaults True so every existing caller keeps its current behavior.
+    reply: bool = True
+
+
+class VoiceSessionBody(BaseModel):
+    coach_id: str
+    title: str | None = None
+    # The coach persona, rendered client-side from src/constants/pandavas.ts.
+    # Kept off the server on purpose: per-thread system_prompt stays the only
+    # persona layer, and the user can edit it in ThreadEditSheet afterwards.
+    # Only applied when the thread is first created — never overwrites an edit.
+    system_prompt: str | None = None
 
 
 class PatchThreadBody(BaseModel):
@@ -193,6 +216,7 @@ THREAD_TAGS: dict[str, str] = {
     "focus_time":      "#FocusTime",
     "clean_ritual":    "#CleanRitual",
     "catch_up":        "#CatchUp",
+    "voice_session":   "#Voice",
 }
 
 THREAD_TITLES: dict[str, str] = {
@@ -205,6 +229,7 @@ THREAD_TITLES: dict[str, str] = {
     "focus_time":      "Focus Session",
     "clean_ritual":    "Clean Ritual",
     "catch_up":        "Catch Up",
+    "voice_session":   "Voice",
 }
 
 DEFAULT_COACHES: dict[str, str] = {
@@ -217,6 +242,8 @@ DEFAULT_COACHES: dict[str, str] = {
     "focus_time":      "arjun",
     "clean_ritual":    "yudi",
     "catch_up":        "yudi",
+    # voice_session has no default — the coach is whoever the user long-pressed.
+    "voice_session":   "arjun",
 }
 
 # Templates that are created by scheduler / occurrence upsert
@@ -239,6 +266,10 @@ TEMPLATE_CADENCE: dict[str, str] = {
     "focus_time":      "none",
     "clean_ritual":    "weekly",
     "catch_up":        "weekly",
+    # Voice threads carry a period_key ("<date>:<coach>") purely as a dedupe key
+    # for "same coach, same day". Cadence stays "none" so the reset cron never
+    # auto-creates them and the Today filter uses the created_at branch.
+    "voice_session":   "none",
 }
 
 SEED_TASKS: dict[str, list[dict]] = {
@@ -882,6 +913,79 @@ def upsert_occurrence(body: OccurrenceBody, response: Response):
     return {"thread": thread_out, "created": created}
 
 
+# Single source of truth lives in obsidian.py, which keys its export query off it.
+VOICE_TEMPLATE = obsidian.VOICE_TEMPLATE
+
+
+@app.post("/threads/voice-session")
+def start_voice_session(body: VoiceSessionBody, response: Response):
+    """Idempotent per-(coach, day) voice thread. 201 on create, 200 if it existed.
+
+    Not reachable through POST /threads: that endpoint gates on API_TEMPLATES and
+    hardcodes period_key=None, and voice threads need a composite period_key
+    ("<YYYY-MM-DD>:<coach_id>") so the existing v2_threads_ritual_uniq partial
+    index gives us one thread per coach per day for free.
+    """
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    if body.coach_id not in _VALID_COACHES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"coach_id must be one of {sorted(_VALID_COACHES)}",
+        )
+
+    tz, day_start_hour = _get_user_schedule(db, user_id)
+    day_key = _daily_period_key(datetime.now(timezone.utc), tz, day_start_hour)
+    period_key = f"{day_key}:{body.coach_id}"
+
+    def _lookup() -> dict | None:
+        rows = (
+            db.table("v2_threads")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("template", VOICE_TEMPLATE)
+            .eq("period_key", period_key)
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        return rows[0] if rows else None
+
+    row = _lookup()
+    created = False
+
+    if row is None:
+        coach_name = obsidian.COACH_NAMES.get(body.coach_id, body.coach_id.title())
+        payload: dict[str, Any] = {
+            "user_id": user_id,
+            "template": VOICE_TEMPLATE,
+            "tag": THREAD_TAGS[VOICE_TEMPLATE],
+            "title": body.title or f"Voice · {coach_name}",
+            "coach_id": body.coach_id,
+            "period_key": period_key,
+            "meta": {"voice": True},
+        }
+        if body.system_prompt:
+            payload["system_prompt"] = body.system_prompt
+        try:
+            row = db.table("v2_threads").insert(payload).execute().data[0]
+            created = True
+        except PostgRESTAPIError as e:
+            # Lost a race against v2_threads_ritual_uniq — the winner's row is
+            # exactly what we wanted, so adopt it rather than failing the tap.
+            msg = str(e)
+            if "duplicate key" not in msg and "v2_threads_ritual_uniq" not in msg:
+                raise
+            row = _lookup()
+            if row is None:
+                raise
+
+    if created:
+        response.status_code = 201
+    return {"thread": _row_to_thread(row, []), "created": created}
+
+
 DEFAULT_AUTO_CREATE_TEMPLATES = ["morning_ritual", "evening_ritual"]
 
 PROFILE_DEFAULTS: dict[str, Any] = {
@@ -1212,6 +1316,17 @@ _HISTORY_FALLBACK_LIMIT = 15
 _TASK_CAP = 30
 _BASE_SYSTEM = "You are an assistant inside the user's Saarthi thread."
 
+# Voice threads need the model to know it is reading speech, not typing. Whisper
+# transcripts ramble, restart mid-sentence and mangle proper nouns; without this
+# the model tends to answer the literal words instead of the intent.
+_VOICE_SYSTEM = (
+    "You are one of the user's Saarthi coaches, replying inside a voice thread. "
+    "The user messages below are Whisper transcripts of spoken clips of up to two "
+    "minutes each, usually recorded back-to-back in one sitting. Expect rambling, "
+    "false starts and transcription slips; read for intent rather than literal "
+    "wording. Respond once to the sitting as a whole, not clip by clip."
+)
+
 
 def _assemble_system_prompt(
     thread_row: dict,
@@ -1222,7 +1337,8 @@ def _assemble_system_prompt(
     Caps total at _PROMPT_CHAR_CAP. If over, drop oldest tasks first.
     Caller separately trims history when system is rebuilt with fewer tasks.
     """
-    parts: list[str] = [_BASE_SYSTEM]
+    base = _VOICE_SYSTEM if thread_row.get("template") == VOICE_TEMPLATE else _BASE_SYSTEM
+    parts: list[str] = [base]
     sp = (thread_row.get("system_prompt") or "").strip()
     if sp:
         parts.append(
@@ -1257,9 +1373,12 @@ def _generate_ai_reply(
     db: Client,
     user_id: str,
     thread_row: dict,
-    user_message_row: dict,
 ) -> dict:
     """Build prompt, call LLM, insert AI row (or system-error row on failure).
+
+    Reads everything it needs (system prompt, tasks, history) straight from the
+    DB, so it does not need the triggering message — which is what lets
+    POST /threads/{id}/reply generate a reply with no new user row at all.
 
     Returns the inserted row. Failures never raise — we always return some row.
     """
@@ -1450,18 +1569,75 @@ def create_message(thread_id: str, body: CreateMessageBody):
             "ai_message": _row_to_message(ai_rows[0]) if ai_rows else None,
         }
 
-    # Only generate an AI reply for user messages.
-    if body.role != "user":
+    # Only generate an AI reply for user messages the caller actually wants one
+    # for. Voice segments post with reply=False and collect a single reply at the
+    # end of the sitting via POST /threads/{id}/reply.
+    if body.role != "user" or not body.reply:
         return {
             "user_message": _row_to_message(user_row),
             "ai_message": None,
         }
 
-    ai_row = _generate_ai_reply(db, user_id, thread_row, user_row)
+    ai_row = _generate_ai_reply(db, user_id, thread_row)
     return {
         "user_message": _row_to_message(user_row),
         "ai_message": _row_to_message(ai_row),
     }
+
+
+# ── Voice session reply + Obsidian export ─────────────────────────────────────
+
+def _export_voice_day(user_id: str, thread_row: dict) -> dict:
+    """Rewrite the Obsidian daily note covering `thread_row`'s day. Never raises."""
+    day_key = obsidian.day_key_for_thread(thread_row)
+    if not day_key:
+        return {"status": "not_a_voice_thread"}
+    db = get_supabase()
+    tz, _ = _get_user_schedule(db, user_id)
+    return obsidian.export_day(db, user_id, day_key, tz)
+
+
+@app.post("/threads/{thread_id}/reply")
+def request_reply(thread_id: str, background: BackgroundTasks):
+    """Generate one AI reply from existing history, without adding a user message.
+
+    This is the "Respond" option at the end of a voice sitting: the segments are
+    already persisted (posted with reply=False), so the coach answers the sitting
+    as a whole rather than each clip.
+    """
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    thread_row = _assert_thread_owner(db, thread_id, user_id)
+    ai_row = _generate_ai_reply(db, user_id, thread_row)
+
+    # A reply means the sitting is over, so this is the point where the note is
+    # worth writing. Backgrounded so a slow or failing disk write can't fail the
+    # request, and deliberately not fired per-segment — see features/voice-pandavas.
+    if thread_row.get("template") == VOICE_TEMPLATE:
+        background.add_task(_export_voice_day, user_id, thread_row)
+
+    return {"ai_message": _row_to_message(ai_row)}
+
+
+@app.post("/threads/{thread_id}/export")
+def export_thread(thread_id: str):
+    """Write this thread's day to the Obsidian daily note.
+
+    Used by the "Dump" option (segments saved, no reply wanted) and as manual
+    repair/backfill. Runs inline rather than backgrounded so the caller learns
+    whether the write actually landed.
+    """
+    user_id = get_dev_user_id()
+    db = get_supabase()
+
+    thread_row = _assert_thread_owner(db, thread_id, user_id)
+    if thread_row.get("template") != VOICE_TEMPLATE:
+        raise HTTPException(
+            status_code=422,
+            detail="export is only defined for voice_session threads",
+        )
+    return _export_voice_day(user_id, thread_row)
 
 
 # ── Thread PATCH ──────────────────────────────────────────────────────────────

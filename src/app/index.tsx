@@ -14,9 +14,11 @@ import { NewThreadModal } from '@/components/thread/NewThreadModal';
 import { ThreadDetail } from '@/components/thread/ThreadDetail';
 import { TodayView } from '@/components/today/TodayView';
 import { FloatingMic } from '@/components/voice/FloatingMic';
-import { VoiceSession, type VoiceSavePayload, type VoiceSessionHandle } from '@/components/voice/VoiceSession';
+import { VoiceOverlay } from '@/components/voice/VoiceOverlay';
+import type { VoiceSessionHandle } from '@/components/voice/VoiceSession';
 import { COACHES_BY_ID, type CoachId } from '@/constants/pandavas';
 import { Colors, threadTheme } from '@/constants/theme';
+import { useVoiceFlow } from '@/hooks/useVoiceFlow';
 import { useEnsureToday, useThreads } from '@/lib/threads.hooks';
 
 type DeviceMode = 'phone' | 'ipad' | 'web';
@@ -35,7 +37,6 @@ export default function AppRoot() {
   const [tab, setTab] = useState<TabId>('today');
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [selectedCoachId, setSelectedCoachId] = useState<CoachId | null>(null);
-  const [voiceOpen, setVoiceOpen] = useState(false);
   const [pendingComposerText, setPendingComposerText] = useState<string | undefined>(undefined);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const voiceSessionRef = useRef<VoiceSessionHandle>(null);
@@ -68,10 +69,26 @@ export default function AppRoot() {
     setOpenThreadId(morning?.id ?? threads[0]!.id);
   }, [threads, mode]);
 
-  // Voice "note" flow stub — not yet designed for V2.
-  const handleSave = useCallback((_payload: VoiceSavePayload) => {
-    console.warn('Voice save dropped — note template not yet wired.');
-  }, []);
+  // Short press dictates into the open thread; long press opens the Pandava
+  // picker and starts a coach session. See src/hooks/useVoiceFlow.ts.
+  const flow = useVoiceFlow({
+    onDictated: setPendingComposerText,
+    onOpenThread: setOpenThreadId,
+    onThreadsChanged: refresh,
+  });
+  const voiceOpen = flow.state.kind !== 'idle';
+
+  // Backdrop / hardware-back dismissal. While a clip is recording this has to go
+  // through the session handle so the audio actually stops and transcribes;
+  // mid-save it is ignored so a write can't be orphaned.
+  const dismissVoice = useCallback(() => {
+    const kind = flow.state.kind;
+    if (kind === 'recording' || kind === 'dictating') {
+      voiceSessionRef.current?.dismiss();
+    } else if (kind !== 'saving') {
+      flow.dismiss();
+    }
+  }, [flow]);
 
   const openThread = openThreadId ? threads.find((t) => t.id === openThreadId) : undefined;
   const activeAccent = openThread ? threadTheme(openThread.tag).color : Colors.accent;
@@ -123,7 +140,7 @@ export default function AppRoot() {
             <ThreadDetail
               threadId={openThreadId}
               onClose={() => { setOpenThreadId(null); refresh(); }}
-              onMic={() => setVoiceOpen(true)}
+              onMic={flow.openDictation}
               pendingComposerText={pendingComposerText}
               onPendingComposerTextConsumed={() => setPendingComposerText(undefined)}
               topInset={Math.max(insets.top, 12) + 34}
@@ -134,7 +151,8 @@ export default function AppRoot() {
 
         <FloatingMic
           accent={activeAccent}
-          onPress={() => setVoiceOpen(true)}
+          onPress={flow.openDictation}
+          onLongPress={flow.openPicker}
           hidden={voiceOpen || !!openThreadId || coachDetailOpen}
           bottom={96 + Math.max(insets.bottom - 8, 0)}
         />
@@ -147,18 +165,15 @@ export default function AppRoot() {
           visible={voiceOpen}
           animationType="fade"
           transparent
-          onRequestClose={() => voiceSessionRef.current?.dismiss()}
+          onRequestClose={dismissVoice}
         >
-          <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-            <VoiceSession
-              ref={voiceSessionRef}
+          {/* Transparent so the coach picker can dim the app behind it; the
+              full-screen steps paint their own opaque background. */}
+          <View style={{ flex: 1 }}>
+            <VoiceOverlay
+              flow={flow}
               accent={activeAccent}
-              maxSeconds={120}
-              warnSeconds={30}
-              existingThreads={[]}
-              onSave={handleSave}
-              onTranscribed={(text) => setPendingComposerText(text)}
-              onClose={() => setVoiceOpen(false)}
+              sessionRef={voiceSessionRef}
               topInset={Math.max(insets.top, 12) + 34}
             />
           </View>
@@ -221,7 +236,7 @@ export default function AppRoot() {
             key={openThreadId}
             threadId={openThreadId}
             onClose={() => { setOpenThreadId(null); refresh(); }}
-            onMic={() => setVoiceOpen(true)}
+            onMic={flow.openDictation}
             pendingComposerText={pendingComposerText}
             onPendingComposerTextConsumed={() => setPendingComposerText(undefined)}
             embedded
@@ -243,7 +258,8 @@ export default function AppRoot() {
 
       <FloatingMic
         accent={activeAccent}
-        onPress={() => setVoiceOpen(true)}
+        onPress={flow.openDictation}
+        onLongPress={flow.openPicker}
         hidden={voiceOpen || !!openThreadId}
         bottom={28}
         right={28}
@@ -252,7 +268,7 @@ export default function AppRoot() {
       {voiceOpen && (
         <Pressable
           accessibilityLabel="Dismiss voice capture"
-          onPress={() => voiceSessionRef.current?.dismiss()}
+          onPress={dismissVoice}
           style={{
             position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
             backgroundColor: 'rgba(0,0,0,0.55)',
@@ -268,15 +284,10 @@ export default function AppRoot() {
               backgroundColor: Colors.bg,
             }}
           >
-            <VoiceSession
-              ref={voiceSessionRef}
+            <VoiceOverlay
+              flow={flow}
               accent={activeAccent}
-              maxSeconds={120}
-              warnSeconds={30}
-              existingThreads={[]}
-              onSave={handleSave}
-              onTranscribed={(text) => setPendingComposerText(text)}
-              onClose={() => setVoiceOpen(false)}
+              sessionRef={voiceSessionRef}
               topInset={28}
             />
           </Pressable>

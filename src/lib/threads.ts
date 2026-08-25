@@ -13,7 +13,8 @@ export type ThreadTemplate =
   | 'workout_logging'
   | 'focus_time'
   | 'clean_ritual'
-  | 'catch_up';
+  | 'catch_up'
+  | 'voice_session';
 
 export type Thread = {
   id: string;

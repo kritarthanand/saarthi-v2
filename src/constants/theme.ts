@@ -57,6 +57,7 @@ export const THREAD_THEMES: Record<string, ThreadTheme> = {
   '#FocusTime':       { color: '#5B8DEF', dim: 'rgba(91,141,239,0.14)',  glyph: '◆' },
   '#CleanRitual':     { color: '#5BC8EF', dim: 'rgba(91,200,239,0.14)',  glyph: '◯' },
   '#CatchUp':         { color: '#E07AA8', dim: 'rgba(224,122,168,0.14)', glyph: '✦' },
+  '#Voice':           { color: '#5BC8EF', dim: 'rgba(91,200,239,0.14)', glyph: '◉' },
 };
 
 export const threadTheme = (tag: string): ThreadTheme =>

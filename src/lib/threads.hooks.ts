@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiFetch } from './api';
-import type { Task, TaskStatus, Thread, ThreadMessage } from './threads';
+import type { CoachId, Task, TaskStatus, Thread, ThreadMessage } from './threads';
 
 // ── Wire types (snake_case from FastAPI) ──────────────────────────────────────
 
@@ -350,21 +350,34 @@ function uuidv4(): string {
  * Generates an idempotency_key (uuid v4) per send so retried POSTs from a
  * flaky network / double-tap don't double-bill the LLM.
  */
+export type SendMessageOptions = {
+  role?: string;
+  /**
+   * Set false to persist the message without triggering an AI reply. Voice
+   * segments use this so a multi-segment sitting gets one reply at the end
+   * (via useRequestReply) instead of one per clip. Defaults true server-side.
+   */
+  reply?: boolean;
+  meta?: Record<string, unknown>;
+};
+
 export function useSendMessage(): (
   threadId: string,
   content: string,
   taskRef?: string,
-  role?: string,
+  opts?: SendMessageOptions,
 ) => Promise<{ user: ThreadMessage; ai: ThreadMessage | null }> {
-  return useCallback(async (threadId, content, taskRef, role = 'user') => {
+  return useCallback(async (threadId, content, taskRef, opts) => {
     const resp = await apiFetch<{ user_message: WireMessage; ai_message: WireMessage | null }>(
       `/threads/${threadId}/messages`,
       {
         method: 'POST',
         body: JSON.stringify({
-          role,
+          role: opts?.role ?? 'user',
           content,
           task_ref: taskRef ?? null,
+          meta: opts?.meta ?? {},
+          reply: opts?.reply ?? true,
           idempotency_key: uuidv4(),
         }),
       },
@@ -373,6 +386,62 @@ export function useSendMessage(): (
       user: toMessage(resp.user_message),
       ai: resp.ai_message ? toMessage(resp.ai_message) : null,
     };
+  }, []);
+}
+
+/**
+ * Start (or rejoin) today's voice thread with a Pandava.
+ *
+ * Idempotent per (coach, day): the server keys on a composite period_key, so
+ * long-pressing the same brother twice in one day lands you back in the same
+ * thread rather than spawning a second one.
+ */
+export function useStartVoiceSession(): (
+  coachId: CoachId,
+  opts?: { title?: string; systemPrompt?: string },
+) => Promise<Thread> {
+  return useCallback(async (coachId, opts) => {
+    const resp = await apiFetch<{ thread: WireThread; created: boolean }>(
+      '/threads/voice-session',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          coach_id: coachId,
+          title: opts?.title ?? null,
+          system_prompt: opts?.systemPrompt ?? null,
+        }),
+      },
+    );
+    return toThread(resp.thread);
+  }, []);
+}
+
+/** Ask the coach to reply to the sitting so far, without adding a new message. */
+export function useRequestReply(): (threadId: string) => Promise<ThreadMessage> {
+  return useCallback(async (threadId) => {
+    const resp = await apiFetch<{ ai_message: WireMessage }>(
+      `/threads/${threadId}/reply`,
+      { method: 'POST' },
+    );
+    return toMessage(resp.ai_message);
+  }, []);
+}
+
+export type ExportResult = {
+  status: string;
+  day?: string;
+  path?: string;
+  sessions?: number;
+  error?: string;
+};
+
+/**
+ * Write this thread's day into the Obsidian daily note. Used by the "dump"
+ * option; the "respond" path exports on its own, server-side.
+ */
+export function useExportThread(): (threadId: string) => Promise<ExportResult> {
+  return useCallback(async (threadId) => {
+    return apiFetch<ExportResult>(`/threads/${threadId}/export`, { method: 'POST' });
   }, []);
 }
 

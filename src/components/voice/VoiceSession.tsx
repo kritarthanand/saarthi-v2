@@ -18,54 +18,57 @@ import {
 
 import { Colors } from '@/constants/theme';
 import { useTranscribe } from '@/lib/threads.hooks';
-import type { ChatMessage } from '@/lib/mockData';
 
 import { CheckIcon, MicIcon } from '../icons';
-
-type ThreadRef = { id: string; tag: string; locked?: boolean };
 
 const fmt = (s: number) => {
   s = Math.max(0, Math.ceil(s));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-export type VoiceSavePayload = {
-  tag: string;
-  messages: ChatMessage[];
-  elapsed: number;
-};
+export type VoiceResult = { text: string; durationS: number };
 
 export type VoiceSessionHandle = {
-  /** Stop + transcribe (if recording) then dismiss. Safe from a backdrop tap. */
+  /** Stop + transcribe (if recording) then finish. Safe from a backdrop tap. */
   dismiss: () => void;
 };
 
 type Phase = 'requesting' | 'denied' | 'recording' | 'transcribing' | 'done' | 'error';
 
+/**
+ * Records one clip of up to `maxSeconds`, transcribes it, and hands the text back.
+ *
+ * Deliberately owns nothing beyond the recording: persistence, threading and the
+ * what-next decision all live with the caller, because a clip means something
+ * different in dictation mode (goes into a Composer) than in a coach session
+ * (becomes a message on a voice thread).
+ */
 export const VoiceSession = forwardRef<
   VoiceSessionHandle,
   {
     accent?: string;
     maxSeconds?: number;
     warnSeconds?: number;
-    existingThreads: ThreadRef[];
-    onClose: () => void;
-    onSave?: (payload: VoiceSavePayload) => void;
-    /**
-     * Called with the transcribed text when recording stops + Whisper returns.
-     * The caller pipes it into the active thread's Composer.
-     */
-    onTranscribed?: (text: string) => void;
     topInset?: number;
+    /** Header line — e.g. "Talking to Arjun". Defaults to dictation wording. */
+    title?: string;
+    /** Optional second line under the status, e.g. "clip 2". */
+    caption?: string;
+    /**
+     * Fires exactly once, last. `null` means nothing usable came back —
+     * cancelled, permission denied, transcription failed, or silence.
+     */
+    onFinish: (result: VoiceResult | null) => void;
   }
 >(function VoiceSession(
   {
     accent = Colors.accent,
     maxSeconds = 120,
     warnSeconds = 30,
-    onClose,
-    onTranscribed,
     topInset = 50,
+    title = 'Voice dictation',
+    caption,
+    onFinish,
   },
   ref
 ) {
@@ -113,30 +116,16 @@ export const VoiceSession = forwardRef<
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Elapsed timer; ticks 1 Hz when recording.
-  useEffect(() => {
-    if (phase !== 'recording') return;
-    const tick = setInterval(() => {
-      const next = Math.min(elapsedRef.current + 1, maxSeconds);
-      elapsedRef.current = next;
-      setElapsed(next);
-      if (next >= maxSeconds) {
-        // Auto-finalize when the cap hits.
-        void finalize();
-      }
-    }, 1000);
-    return () => clearInterval(tick);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, maxSeconds]);
-
   const finalize = useCallback(async () => {
     if (finalizingRef.current) return;
     finalizingRef.current = true;
 
     if (phase === 'denied' || phase === 'error') {
-      onClose();
+      onFinish(null);
       return;
     }
+
+    const durationS = elapsedRef.current;
 
     try {
       if (phase === 'recording') {
@@ -147,24 +136,42 @@ export const VoiceSession = forwardRef<
           throw new Error('No recording URI');
         }
         const text = await transcribe({ uri, type: 'audio/m4a', name: 'recording.m4a' });
-        if (text) onTranscribed?.(text);
+        setPhase('done');
+        // A silent clip transcribes to an empty string. Report it as nothing
+        // rather than persisting a blank message on the thread.
+        onFinish(text.trim() ? { text: text.trim(), durationS } : null);
+        return;
       }
       setPhase('done');
-      onClose();
+      onFinish(null);
     } catch (e) {
       console.error('finalize failed', e);
       setError(String(e));
       setPhase('error');
-      onClose();
+      onFinish(null);
     }
-  }, [phase, recorder, transcribe, onTranscribed, onClose]);
+  }, [phase, recorder, transcribe, onFinish]);
 
-  // Stable handle so parents re-binding `onClose` don't churn the ref.
+  // Stable handle so parents re-binding callbacks don't churn the ref.
   const finalizeRef = useRef(finalize);
   useEffect(() => {
     finalizeRef.current = finalize;
   }, [finalize]);
   useImperativeHandle(ref, () => ({ dismiss: () => finalizeRef.current() }), []);
+
+  // Elapsed timer; ticks 1 Hz when recording, auto-finalizing at the cap.
+  useEffect(() => {
+    if (phase !== 'recording') return;
+    const tick = setInterval(() => {
+      const next = Math.min(elapsedRef.current + 1, maxSeconds);
+      elapsedRef.current = next;
+      setElapsed(next);
+      if (next >= maxSeconds) {
+        void finalizeRef.current();
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [phase, maxSeconds]);
 
   const remaining = maxSeconds - elapsed;
   const isWarn = remaining <= warnSeconds && remaining > 0 && phase === 'recording';
@@ -212,10 +219,10 @@ export const VoiceSession = forwardRef<
         </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 14, color: Colors.textDim, fontWeight: '600' }}>
-            Voice dictation
+            {title}
           </Text>
           <Text style={{ fontSize: 11.5, color: Colors.textFaint, fontWeight: '500' }}>
-            {statusLabel}
+            {caption ? `${caption} · ${statusLabel}` : statusLabel}
           </Text>
         </View>
       </View>
@@ -240,7 +247,7 @@ export const VoiceSession = forwardRef<
           {phase === 'requesting' && 'Requesting microphone…'}
           {phase === 'recording' && 'Speak — I’ll transcribe when you’re done.'}
           {phase === 'transcribing' && 'Transcribing your clip…'}
-          {phase === 'denied' && 'Microphone permission is required for voice dictation.'}
+          {phase === 'denied' && 'Microphone permission is required for voice.'}
           {phase === 'error' && 'Something went wrong.'}
         </Text>
         {phase === 'recording' && (
@@ -260,9 +267,7 @@ export const VoiceSession = forwardRef<
       >
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={
-            phase === 'recording' ? 'Stop and transcribe' : 'Close'
-          }
+          accessibilityLabel={phase === 'recording' ? 'Stop and transcribe' : 'Close'}
           onPress={() => finalizeRef.current()}
           disabled={phase === 'transcribing'}
           style={{

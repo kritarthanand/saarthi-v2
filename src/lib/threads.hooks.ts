@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiFetch } from './api';
+import { getProxyUrl } from './config';
 import type { CoachId, Task, TaskStatus, Thread, ThreadMessage } from './threads';
 
 // ── Wire types (snake_case from FastAPI) ──────────────────────────────────────
@@ -476,51 +477,30 @@ export function usePatchThread(): (
 }
 
 /**
- * Upload an audio recording (file:// URI from expo-audio) directly to OpenAI
- * Whisper and return the transcript text. The FormData entry uses the RN-only
+ * Upload an audio recording (file:// URI from expo-audio) to the Saarthi server
+ * and return the transcript text. The FormData entry uses the RN-only
  * { uri, type, name } shape — NOT a Blob.
- *
- * Uses XMLHttpRequest because Expo SDK 56's WinterCG fetch rejects the legacy
- * RN `{uri, name, type}` FormData part shape.
  */
 export function useTranscribe(): (
   audio: { uri: string; type?: string; name?: string },
 ) => Promise<string> {
   return useCallback(async ({ uri, type = 'audio/m4a', name = 'recording.m4a' }) => {
-    const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-    if (!key) throw new Error('EXPO_PUBLIC_OPENAI_API_KEY is not configured');
-
     const form = new FormData();
     form.append('file', { uri, type, name } as unknown as Blob);
-    form.append('model', 'whisper-1');
-    return new Promise<string>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'https://api.openai.com/v1/audio/transcriptions');
-      xhr.setRequestHeader('Authorization', `Bearer ${key}`);
-      xhr.timeout = 30_000;
-      xhr.ontimeout = () => reject(new Error('transcription timed out'));
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const json = JSON.parse(xhr.responseText) as { text: string };
-            resolve(json.text ?? '');
-          } catch (e) {
-            reject(new Error(`bad json from openai transcriptions: ${String(e)}`));
-          }
-        } else {
-          let detail = `HTTP ${xhr.status}`;
-          try {
-            const body = JSON.parse(xhr.responseText) as { error?: { message?: string } };
-            if (typeof body.error?.message === 'string') detail = body.error.message;
-          } catch {
-            /* keep generic */
-          }
-          reject(Object.assign(new Error(detail), { status: xhr.status }));
-        }
-      };
-      xhr.onerror = () => reject(new Error('network error during openai transcriptions'));
-      xhr.send(form);
+
+    const base = await getProxyUrl();
+    const res = await fetch(`${base}/transcribe`, {
+      method: 'POST',
+      body: form,
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const detail = (body as { detail?: unknown })?.detail;
+      const msg = typeof detail === 'string' ? detail : `HTTP ${res.status}`;
+      throw Object.assign(new Error(msg), { status: res.status, body, detail });
+    }
+    const json = await res.json() as { text?: string };
+    return json.text ?? '';
   }, []);
 }
 

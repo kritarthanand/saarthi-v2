@@ -480,27 +480,51 @@ export function usePatchThread(): (
  * Upload an audio recording (file:// URI from expo-audio) to the Saarthi server
  * and return the transcript text. The FormData entry uses the RN-only
  * { uri, type, name } shape — NOT a Blob.
+ *
+ * Uses XMLHttpRequest, not fetch, even though the request now targets our own
+ * server rather than OpenAI directly. Expo SDK 56's global fetch is a WinterCG
+ * polyfill (installed unconditionally unless EXPO_PUBLIC_USE_RN_FETCH is set —
+ * see node_modules/expo/src/winter/runtime.native.ts), and its FormData
+ * converter only accepts a Blob or an object with `bytes` on it
+ * (node_modules/expo/src/winter/fetch/convertFormData.ts) — it throws
+ * "Unsupported FormDataPart implementation" for RN's `{uri, name, type}` part
+ * regardless of which URL fetch is pointed at. XHR routes through RN's native
+ * networking layer instead, which still accepts the legacy shape.
  */
 export function useTranscribe(): (
   audio: { uri: string; type?: string; name?: string },
 ) => Promise<string> {
   return useCallback(async ({ uri, type = 'audio/m4a', name = 'recording.m4a' }) => {
+    const base = await getProxyUrl();
     const form = new FormData();
     form.append('file', { uri, type, name } as unknown as Blob);
-
-    const base = await getProxyUrl();
-    const res = await fetch(`${base}/transcribe`, {
-      method: 'POST',
-      body: form,
+    return new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${base}/transcribe`);
+      xhr.timeout = 30_000;
+      xhr.ontimeout = () => reject(new Error('transcription timed out'));
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const json = JSON.parse(xhr.responseText) as { text?: string };
+            resolve(json.text ?? '');
+          } catch (e) {
+            reject(new Error(`bad json from /transcribe: ${String(e)}`));
+          }
+        } else {
+          let detail = `HTTP ${xhr.status}`;
+          try {
+            const body = JSON.parse(xhr.responseText) as { detail?: string };
+            if (typeof body.detail === 'string') detail = body.detail;
+          } catch {
+            /* keep generic */
+          }
+          reject(Object.assign(new Error(detail), { status: xhr.status }));
+        }
+      };
+      xhr.onerror = () => reject(new Error('network error during /transcribe'));
+      xhr.send(form);
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const detail = (body as { detail?: unknown })?.detail;
-      const msg = typeof detail === 'string' ? detail : `HTTP ${res.status}`;
-      throw Object.assign(new Error(msg), { status: res.status, body, detail });
-    }
-    const json = await res.json() as { text?: string };
-    return json.text ?? '';
   }, []);
 }
 

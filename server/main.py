@@ -1619,17 +1619,23 @@ def _export_backends() -> list[Any]:
 
 def _export_voice_day(user_id: str, thread_row: dict) -> dict:
     """Export `thread_row`'s day to every configured target. Never raises."""
-    day_key = obsidian.day_key_for_thread(thread_row)
-    if not day_key:
-        return {"status": "not_a_voice_thread"}
-
     backends = _export_backends()
     if not backends:
         return {"status": "disabled"}
 
     db = get_supabase()
-    tz, _ = _get_user_schedule(db, user_id)
-    results = {b.__name__: b.export_day(db, user_id, day_key, tz) for b in backends}
+    tz, day_start_hour = _get_user_schedule(db, user_id)
+    # A freeform thread has no period_key to read a day off, so fall back to the
+    # day the sitting just happened on — export fires right after one.
+    today = _daily_period_key(datetime.now(timezone.utc), tz, day_start_hour)
+    day_key = obsidian.day_key_for_thread(thread_row, fallback=today)
+    if not day_key:
+        return {"status": "no_day_key"}
+
+    results = {
+        b.__name__: b.export_day(db, user_id, day_key, tz, day_start_hour)
+        for b in backends
+    }
 
     # Collapse to one status so the client keeps its simple contract: an error
     # only if every configured target failed, since a partial write still landed.
@@ -1655,8 +1661,7 @@ def request_reply(thread_id: str, background: BackgroundTasks):
     # A reply means the sitting is over, so this is the point where the note is
     # worth writing. Backgrounded so a slow or failing disk write can't fail the
     # request, and deliberately not fired per-segment — see features/voice-pandavas.
-    if thread_row.get("template") == VOICE_TEMPLATE:
-        background.add_task(_export_voice_day, user_id, thread_row)
+    background.add_task(_export_voice_day, user_id, thread_row)
 
     return {"ai_message": _row_to_message(ai_row)}
 
@@ -1672,12 +1677,9 @@ def export_thread(thread_id: str):
     user_id = get_dev_user_id()
     db = get_supabase()
 
+    # Any thread can hold spoken clips — the export collects the day's sittings
+    # by message, not by template, so a ritual thread is a valid target too.
     thread_row = _assert_thread_owner(db, thread_id, user_id)
-    if thread_row.get("template") != VOICE_TEMPLATE:
-        raise HTTPException(
-            status_code=422,
-            detail="export is only defined for voice_session threads",
-        )
     return _export_voice_day(user_id, thread_row)
 
 

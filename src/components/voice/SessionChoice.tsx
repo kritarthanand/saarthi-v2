@@ -29,7 +29,6 @@ export function SessionChoice({
   onRespond,
   onDump,
   topInset = 50,
-  canExport = true,
 }: {
   coach: Coach;
   segmentCount: number;
@@ -41,8 +40,6 @@ export function SessionChoice({
   onRespond: () => void;
   onDump: () => void;
   topInset?: number;
-  /** False for a sitting inside a non-voice thread: nothing to write out. */
-  canExport?: boolean;
 }) {
   const locked = busy !== null;
 
@@ -139,11 +136,7 @@ export function SessionChoice({
         />
         <ChoiceButton
           label="Just leave it"
-          detail={
-            canExport
-              ? 'Dump it to your daily note without a reply'
-              : `Keep the clips on ${coach.name}'s thread, no reply`
-          }
+          detail="Write it out without a reply"
           color={Colors.textDim}
           disabled={locked}
           loading={busy === 'export'}

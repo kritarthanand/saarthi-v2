@@ -35,6 +35,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from voice_sessions import (
+    VOICE_TEMPLATE,
     collect_day_sessions,
     fmt_time,
     session_duration,
@@ -241,6 +242,11 @@ def render_blocks(sessions: list[dict], tz: ZoneInfo) -> list[dict]:
         meta_bits = [f"{len(session['segments'])} clip" + ("" if len(session["segments"]) == 1 else "s")]
         if total:
             meta_bits.append(f"{total}s")
+        # Clips spoken inside a ritual or freeform thread merge into the coach's
+        # page, so say where they came from.
+        source = session.get("source_tag") or ""
+        if source and session.get("source_template") != VOICE_TEMPLATE:
+            meta_bits.append(f"from {source}")
         blocks.append(_para(" · ".join(meta_bits), italic=True))
 
         # Spoken clips as quotes so they stay visually distinct from the reply.
@@ -329,7 +335,9 @@ def _properties(coach: str, day: str, clips: int, seconds: int, key: str, digest
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def export_day(db: Any, user_id: str, day_key: str, tz: ZoneInfo) -> dict[str, Any]:
+def export_day(
+    db: Any, user_id: str, day_key: str, tz: ZoneInfo, day_start_hour: int = 4
+) -> dict[str, Any]:
     """Rewrite one Notion page per (day, coach) for `day_key`.
 
     Mirrors obsidian.export_day's contract exactly, including never raising.
@@ -343,7 +351,7 @@ def export_day(db: Any, user_id: str, day_key: str, tz: ZoneInfo) -> dict[str, A
         return {"status": "bad_day_key", "day": day_key}
 
     try:
-        sessions = collect_day_sessions(db, user_id, day_key)
+        sessions = collect_day_sessions(db, user_id, day_key, tz, day_start_hour)
         if not sessions:
             return {"status": "no_sessions", "day": day_key}
 

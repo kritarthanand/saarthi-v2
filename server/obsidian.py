@@ -102,6 +102,11 @@ def _render_session(session: dict, tz: ZoneInfo) -> str:
     if total:
         lines.append(f"duration:: {total}s")
     lines.append(f"session:: {str(session['session_id'])[:8]}")
+    # Clips spoken inside a ritual or freeform thread merge into the coach's
+    # section, so say where they came from.
+    source = session.get("source_tag") or ""
+    if source and session.get("source_template") != VOICE_TEMPLATE:
+        lines.append(f"from:: {source}")
     lines.append("")
 
     for seg in session["segments"]:
@@ -220,6 +225,7 @@ def export_day(
     user_id: str,
     day_key: str,
     tz: ZoneInfo,
+    day_start_hour: int = 4,
 ) -> dict[str, Any]:
     """Rewrite the managed region of `day_key`'s daily note.
 
@@ -242,7 +248,7 @@ def export_day(
         return {"status": "disabled"}
 
     try:
-        sessions = collect_day_sessions(db, user_id, day_key)
+        sessions = collect_day_sessions(db, user_id, day_key, tz, day_start_hour)
         if not sessions:
             return {"status": "no_sessions", "day": day_key}
 

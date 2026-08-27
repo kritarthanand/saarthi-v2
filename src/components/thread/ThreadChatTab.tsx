@@ -1,11 +1,8 @@
 import { Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
+import { useClock } from '@/hooks/useClock';
 import type { Thread, ThreadMessage } from '@/lib/threads';
-
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
 
 export function ThreadChatTab({
   thread,
@@ -14,6 +11,7 @@ export function ThreadChatTab({
   thread: Thread;
   messages: ThreadMessage[];
 }) {
+  const clock = useClock();
   const theme = threadTheme(thread.tag);
   const tagName = thread.tag.replace('#', '');
   return (
@@ -30,7 +28,7 @@ export function ThreadChatTab({
         </Text>
       </View>
       {messages.map((m) => {
-        const timeLabel = fmtTime(m.created_at);
+        const timeLabel = clock.time(m.created_at);
         const metaTag = typeof m.meta?.tag === 'string' ? m.meta.tag : tagName.toLowerCase();
         return m.role === 'ai' ? (
           <View key={m.id} style={{ alignItems: 'flex-start', maxWidth: '88%', gap: 4 }}>

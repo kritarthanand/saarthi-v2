@@ -3,6 +3,7 @@ import { ScrollView, Text, View } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
 import type { Task, Thread, ThreadMessage } from '@/lib/threads';
+import { useClock } from '@/hooks/useClock';
 import { Composer } from '../Composer';
 
 export type ThreadChatProps = {
@@ -27,10 +28,6 @@ export type ThreadChatProps = {
   onPendingComposerTextConsumed?: () => void;
 };
 
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
 export function ThreadChat({
   thread,
   tasks = [],
@@ -45,6 +42,7 @@ export function ThreadChat({
   pendingComposerText,
   onPendingComposerTextConsumed,
 }: ThreadChatProps) {
+  const clock = useClock();
   const theme = threadTheme(thread.tag);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -87,7 +85,7 @@ export function ThreadChat({
         keyboardShouldPersistTaps="handled"
       >
         {messages.map((msg) => {
-          const timeLabel = fmtTime(msg.created_at);
+          const timeLabel = clock.time(msg.created_at);
           const metaTag =
             typeof msg.meta?.tag === 'string' ? msg.meta.tag : null;
           const referencedTask = msg.task_ref ? tasks.find((t) => t.id === msg.task_ref) : undefined;

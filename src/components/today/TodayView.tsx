@@ -1,6 +1,7 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
+import { useClock } from '@/hooks/useClock';
 import type { Thread } from '@/lib/threads';
 import { AppHeader } from '../AppHeader';
 import { ScoreHeader } from './ScoreHeader';
@@ -19,9 +20,10 @@ export function TodayView({
   topInset?: number;
   rightLabel?: string;
 }) {
-  const dayLabel =
-    rightLabel ??
-    new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  // Profile timezone, not the device's — this header sits directly above threads
+  // the server selected using that same zone.
+  const clock = useClock();
+  const dayLabel = rightLabel ?? clock.todayLabel();
 
   const headerRight = onNew ? (
     <Pressable

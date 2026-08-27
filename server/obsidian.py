@@ -23,23 +23,21 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-logger = logging.getLogger(__name__)
+from voice_sessions import (  # noqa: F401  (VOICE_TEMPLATE/COACH_NAMES re-exported for main.py)
+    COACH_NAMES,
+    VOICE_TEMPLATE,
+    collect_day_sessions,
+    day_key_for_thread,
+    fmt_time as _fmt_time,
+    session_duration,
+)
 
-VOICE_TEMPLATE = "voice_session"
+logger = logging.getLogger(__name__)
 
 BEGIN_MARKER = "<!-- saarthi:voice:begin -->"
 END_MARKER = "<!-- saarthi:voice:end -->"
 HEADING = "## Voice"
 
-# Display names only — deliberately not personas. The persona layer stays in
-# each thread's system_prompt (see the chat-audio-thread-editing spec).
-COACH_NAMES: dict[str, str] = {
-    "nakula": "Nakula",
-    "bheem": "Bheem",
-    "arjun": "Arjun",
-    "yudi": "Yudi",
-    "sahdev": "Sahdev",
-}
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -90,65 +88,13 @@ def daily_note_path(day: date) -> Path | None:
     return base / f"{name}.md"
 
 
-# ── Session grouping ──────────────────────────────────────────────────────────
-
-def _group_sessions(thread_row: dict, messages: list[dict]) -> list[dict]:
-    """Group a voice thread's messages into sittings keyed by meta.session_id.
-
-    AI replies are attributed to the most recent session seen, which is what
-    POST /threads/{id}/reply produces — one reply for the whole sitting.
-    """
-    coach_id = thread_row.get("coach_id") or ""
-    sessions: dict[str, dict] = {}
-    order: list[str] = []
-    current: str | None = None
-
-    for msg in messages:
-        role = msg.get("role")
-        meta = msg.get("meta") or {}
-        if role == "user":
-            # Messages typed rather than spoken still belong to the sitting they
-            # land in, so fall back to the running session rather than dropping them.
-            sid = meta.get("session_id") or current or f"msg-{msg.get('id', '')}"
-            if sid not in sessions:
-                sessions[sid] = {
-                    "session_id": sid,
-                    "coach_id": coach_id,
-                    "coach_name": COACH_NAMES.get(coach_id, coach_id.title() or "Saarthi"),
-                    "started_at": msg.get("created_at", ""),
-                    "segments": [],
-                    "replies": [],
-                }
-                order.append(sid)
-            current = sid
-            sessions[sid]["segments"].append(msg)
-        elif role == "ai" and current is not None:
-            sessions[current]["replies"].append(msg)
-
-    return [sessions[sid] for sid in order]
-
-
 # ── Rendering ─────────────────────────────────────────────────────────────────
-
-def _fmt_time(iso: str, tz: ZoneInfo) -> str:
-    try:
-        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-    except ValueError:
-        return ""
-    return dt.astimezone(tz).strftime("%H:%M")
-
 
 def _render_session(session: dict, tz: ZoneInfo) -> str:
     started = _fmt_time(session["started_at"], tz)
     lines: list[str] = [f"### {session['coach_name']} · {started}".rstrip(" ·")]
 
-    total = 0
-    for seg in session["segments"]:
-        meta = seg.get("meta") or {}
-        try:
-            total += int(meta.get("duration_s") or 0)
-        except (TypeError, ValueError):
-            pass
+    total = session_duration(session)
 
     # Dataview inline fields — queryable without Saarthi ever editing the
     # note's frontmatter, which belongs to the user.
@@ -296,37 +242,7 @@ def export_day(
         return {"status": "disabled"}
 
     try:
-        # period_key for voice threads is "<YYYY-MM-DD>:<coach_id>".
-        threads = (
-            db.table("v2_threads")
-            .select("id, coach_id, period_key, template")
-            .eq("user_id", user_id)
-            .eq("template", VOICE_TEMPLATE)
-            .like("period_key", f"{day_key}:%")
-            .execute()
-            .data or []
-        )
-        if not threads:
-            return {"status": "no_sessions", "day": day_key}
-
-        thread_ids = [t["id"] for t in threads]
-        rows = (
-            db.table("v2_thread_messages")
-            .select("id, thread_id, role, content, meta, created_at")
-            .in_("thread_id", thread_ids)
-            .in_("role", ["user", "ai"])
-            .order("created_at")
-            .execute()
-            .data or []
-        )
-        by_thread: dict[str, list[dict]] = {}
-        for row in rows:
-            by_thread.setdefault(row["thread_id"], []).append(row)
-
-        sessions: list[dict] = []
-        for thread in threads:
-            sessions.extend(_group_sessions(thread, by_thread.get(thread["id"], [])))
-
+        sessions = collect_day_sessions(db, user_id, day_key)
         if not sessions:
             return {"status": "no_sessions", "day": day_key}
 
@@ -343,10 +259,3 @@ def export_day(
         return {"status": "error", "day": day_key, "error": str(e)[:300]}
 
 
-def day_key_for_thread(thread_row: dict) -> str | None:
-    """Pull the 'YYYY-MM-DD' half out of a voice thread's composite period_key."""
-    if thread_row.get("template") != VOICE_TEMPLATE:
-        return None
-    period_key = thread_row.get("period_key") or ""
-    day_key = period_key.split(":", 1)[0]
-    return day_key or None

@@ -21,6 +21,7 @@ from postgrest.exceptions import APIError as PostgRESTAPIError
 from supabase import create_client, Client
 
 import llm
+import notion
 import obsidian
 
 load_dotenv()
@@ -1591,14 +1592,35 @@ def create_message(thread_id: str, body: CreateMessageBody):
 
 # ── Voice session reply + Obsidian export ─────────────────────────────────────
 
+def _export_backends() -> list[Any]:
+    """Whichever export targets are configured, in a stable order.
+
+    Both are optional and both can run at once — they write to different places
+    and neither reads the other. With none configured this is empty and export
+    is a no-op, which is the default.
+    """
+    return [b for b in (obsidian, notion) if b.is_enabled()]
+
+
 def _export_voice_day(user_id: str, thread_row: dict) -> dict:
-    """Rewrite the Obsidian daily note covering `thread_row`'s day. Never raises."""
+    """Export `thread_row`'s day to every configured target. Never raises."""
     day_key = obsidian.day_key_for_thread(thread_row)
     if not day_key:
         return {"status": "not_a_voice_thread"}
+
+    backends = _export_backends()
+    if not backends:
+        return {"status": "disabled"}
+
     db = get_supabase()
     tz, _ = _get_user_schedule(db, user_id)
-    return obsidian.export_day(db, user_id, day_key, tz)
+    results = {b.__name__: b.export_day(db, user_id, day_key, tz) for b in backends}
+
+    # Collapse to one status so the client keeps its simple contract: an error
+    # only if every configured target failed, since a partial write still landed.
+    statuses = [r.get("status") for r in results.values()]
+    status = "error" if all(s == "error" for s in statuses) else "updated"
+    return {"status": status, "day": day_key, "targets": results}
 
 
 @app.post("/threads/{thread_id}/reply")

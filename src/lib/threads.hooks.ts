@@ -429,12 +429,25 @@ export function useRequestReply(): (threadId: string) => Promise<ThreadMessage> 
   }, []);
 }
 
-export type ExportResult = {
+/**
+ * Export can fan out to more than one target (Obsidian, Notion), so the
+ * per-target detail is nested. The top-level `status` is 'error' only when every
+ * configured target failed — a partial write still landed somewhere.
+ */
+export type ExportTargetResult = {
   status: string;
   day?: string;
   path?: string;
+  database?: string;
+  pages?: number;
   sessions?: number;
   error?: string;
+};
+
+export type ExportResult = {
+  status: string;
+  day?: string;
+  targets?: Record<string, ExportTargetResult>;
 };
 
 /**

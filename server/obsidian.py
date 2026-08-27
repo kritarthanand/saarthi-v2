@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import stat
 import re
 import tempfile
 from datetime import date, datetime
@@ -212,6 +213,17 @@ def _atomic_write(path: Path, content: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(content)
+        # os.replace carries the temp file's mode onto the destination, and
+        # mkstemp creates at 0600 — without this the user's note would silently
+        # go from 644 to 600 on every export, which matters for a vault that is
+        # synced or shared. Mirror the existing file; fall back to the umask
+        # default for a note we are creating.
+        try:
+            os.chmod(tmp, stat.S_IMODE(os.stat(path).st_mode))
+        except FileNotFoundError:
+            umask = os.umask(0)
+            os.umask(umask)
+            os.chmod(tmp, 0o666 & ~umask)
         os.replace(tmp, path)
     except Exception:
         try:

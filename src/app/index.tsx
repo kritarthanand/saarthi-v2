@@ -69,8 +69,11 @@ export default function AppRoot() {
     setOpenThreadId(morning?.id ?? threads[0]!.id);
   }, [threads, mode]);
 
-  // Short press dictates into the open thread; long press opens the Pandava
-  // picker and starts a coach session. See src/hooks/useVoiceFlow.ts.
+  // The floating mic only renders when no thread is open, so a short press there
+  // has no Composer to dictate into — both presses open the Pandava picker.
+  // Dictation stays reachable from the in-thread mic (ThreadDetail's `onMic`),
+  // which is the only place a transcript has somewhere to land.
+  // See src/hooks/useVoiceFlow.ts.
   const flow = useVoiceFlow({
     onDictated: setPendingComposerText,
     onOpenThread: setOpenThreadId,
@@ -151,7 +154,7 @@ export default function AppRoot() {
 
         <FloatingMic
           accent={activeAccent}
-          onPress={flow.openDictation}
+          onPress={flow.openPicker}
           onLongPress={flow.openPicker}
           hidden={voiceOpen || !!openThreadId || coachDetailOpen}
           bottom={96 + Math.max(insets.bottom - 8, 0)}
@@ -221,6 +224,20 @@ export default function AppRoot() {
           />
         )}
         {tab === 'profile' && <ProfilePane topInset={28} />}
+
+        {/* Inside the list pane, not the window: at window level this had to be
+            hidden whenever a thread was open (it would land on top of the
+            detail pane's composer mic), and the detail pane always has a thread
+            open here — so the Pandava picker was unreachable on iPad. Scoped to
+            the list pane there is no collision and no reason to hide it. */}
+        <FloatingMic
+          accent={activeAccent}
+          onPress={flow.openPicker}
+          onLongPress={flow.openPicker}
+          hidden={voiceOpen}
+          bottom={28}
+          right={20}
+        />
       </View>
 
       {/* Detail pane */}
@@ -256,15 +273,6 @@ export default function AppRoot() {
         )}
       </View>
 
-      <FloatingMic
-        accent={activeAccent}
-        onPress={flow.openDictation}
-        onLongPress={flow.openPicker}
-        hidden={voiceOpen || !!openThreadId}
-        bottom={28}
-        right={28}
-      />
-
       {voiceOpen && (
         <Pressable
           accessibilityLabel="Dismiss voice capture"
@@ -289,6 +297,7 @@ export default function AppRoot() {
               accent={activeAccent}
               sessionRef={voiceSessionRef}
               topInset={28}
+              embedded
             />
           </Pressable>
         </Pressable>

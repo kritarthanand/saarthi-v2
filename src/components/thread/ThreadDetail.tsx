@@ -41,6 +41,10 @@ export function ThreadDetail({
   const [aiTyping, setAiTyping] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editTasksOpen, setEditTasksOpen] = useState(false);
+  // See the note in src/components/voice/SessionChoice.tsx: Pressable's
+  // `style={({pressed}) => …}` callback form is dropped in this app, so press
+  // highlighting on the options menu is tracked here instead.
+  const [pressedMenu, setPressedMenu] = useState<string | null>(null);
 
   const { thread, tasks, messages, refresh } = useThread(threadId);
 
@@ -300,12 +304,14 @@ export function ThreadDetail({
               }}
               accessibilityRole="button"
               accessibilityLabel="Edit thread"
-              style={({ pressed }) => ({
+              onPressIn={() => setPressedMenu('edit')}
+              onPressOut={() => setPressedMenu(null)}
+              style={{
                 flexDirection: 'row', alignItems: 'center', gap: 10,
                 paddingVertical: 13, paddingHorizontal: 14,
-                backgroundColor: pressed ? 'rgba(255,255,255,0.04)' : 'transparent',
+                backgroundColor: pressedMenu === 'edit' ? 'rgba(255,255,255,0.04)' : 'transparent',
                 borderTopLeftRadius: 14, borderTopRightRadius: 14,
-              })}
+              }}
             >
               <Text style={{ fontSize: 16 }}>✎</Text>
               <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.text }}>Edit thread</Text>
@@ -317,11 +323,13 @@ export function ThreadDetail({
               }}
               accessibilityRole="button"
               accessibilityLabel="Edit tasks"
-              style={({ pressed }) => ({
+              onPressIn={() => setPressedMenu('tasks')}
+              onPressOut={() => setPressedMenu(null)}
+              style={{
                 flexDirection: 'row', alignItems: 'center', gap: 10,
                 paddingVertical: 13, paddingHorizontal: 14,
-                backgroundColor: pressed ? 'rgba(255,255,255,0.04)' : 'transparent',
-              })}
+                backgroundColor: pressedMenu === 'tasks' ? 'rgba(255,255,255,0.04)' : 'transparent',
+              }}
             >
               <Text style={{ fontSize: 16 }}>☑</Text>
               <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.text }}>
@@ -332,12 +340,14 @@ export function ThreadDetail({
               onPress={handleDelete}
               accessibilityRole="button"
               accessibilityLabel="Delete thread"
-              style={({ pressed }) => ({
+              onPressIn={() => setPressedMenu('delete')}
+              onPressOut={() => setPressedMenu(null)}
+              style={{
                 flexDirection: 'row', alignItems: 'center', gap: 10,
                 paddingVertical: 13, paddingHorizontal: 14,
-                backgroundColor: pressed ? 'rgba(255,77,77,0.08)' : 'transparent',
+                backgroundColor: pressedMenu === 'delete' ? 'rgba(255,77,77,0.08)' : 'transparent',
                 borderRadius: 14,
-              })}
+              }}
             >
               <Text style={{ fontSize: 16 }}>🗑</Text>
               <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.danger }}>Delete thread</Text>

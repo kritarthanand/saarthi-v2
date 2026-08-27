@@ -3,7 +3,8 @@
 // Everything rendered here already exists in COACHES — name, domain, accent —
 // so this is pure presentation over the registry, with no new data layer.
 
-import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { COACHES, type CoachId } from '@/constants/pandavas';
 import { Colors } from '@/constants/theme';
@@ -12,14 +13,26 @@ export function CoachPicker({
   onSelect,
   onCancel,
   topInset = 0,
+  embedded = false,
 }: {
   onSelect: (coachId: CoachId) => void;
   onCancel: () => void;
   topInset?: number;
+  /** Rendered inside the iPad/web card rather than a full-screen phone modal. */
+  embedded?: boolean;
 }) {
-  const { width } = useWindowDimensions();
-  // Five across needs ~86pt each; below that they stack into a scrollable column.
-  const row = width >= 480;
+  // Measure the sheet itself, not the window: on iPad this renders inside a
+  // fixed 440pt card, so useWindowDimensions() reported the full 834pt window
+  // and picked the five-across row layout, which then clipped the last coach.
+  const [width, setWidth] = useState(0);
+  // See the note in ./SessionChoice.tsx: Pressable's `style={({pressed}) => …}`
+  // callback form is dropped in this app, which silently flattened these rows
+  // into a column (avatar above the name instead of beside it).
+  const [pressedId, setPressedId] = useState<string | null>(null);
+  // Five across need ~92pt each; below that they stack into a scrollable column.
+  // width === 0 on the first pass (pre-measure) — fall back to the column layout,
+  // which fits anywhere, rather than risking a clipped row.
+  const row = width >= 5 * 92 + 32;
   const size = row ? 66 : 56;
 
   return (
@@ -29,12 +42,15 @@ export function CoachPicker({
       style={{
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.72)',
-        justifyContent: 'flex-end',
+        // Bottom sheet over the app on phone; centered in the card on iPad,
+        // where pinning to the bottom just leaves dead black above it.
+        justifyContent: embedded ? 'center' : 'flex-end',
         paddingTop: topInset,
       }}
     >
       <Pressable
         onPress={(e) => e.stopPropagation()}
+        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
         style={{
           backgroundColor: Colors.bgElev,
           borderTopLeftRadius: 28,
@@ -76,16 +92,18 @@ export function CoachPicker({
               accessibilityRole="button"
               accessibilityLabel={`Talk to ${coach.name} about ${coach.domain}`}
               onPress={() => onSelect(coach.id)}
-              style={({ pressed }) =>
+              onPressIn={() => setPressedId(coach.id)}
+              onPressOut={() => setPressedId(null)}
+              style={
                 row
                   ? {
                       width: 92, alignItems: 'center', gap: 8,
-                      paddingVertical: 8, opacity: pressed ? 0.6 : 1,
+                      paddingVertical: 8, opacity: pressedId === coach.id ? 0.6 : 1,
                     }
                   : {
                       flexDirection: 'row', alignItems: 'center', gap: 14,
                       paddingVertical: 10, paddingHorizontal: 6,
-                      opacity: pressed ? 0.6 : 1,
+                      opacity: pressedId === coach.id ? 0.6 : 1,
                     }
               }
             >

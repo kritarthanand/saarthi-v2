@@ -4,6 +4,7 @@
 // message (posted with reply=false). None of these three buttons can lose your
 // recording — they only decide what happens next.
 
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import type { Coach } from '@/constants/pandavas';
@@ -163,6 +164,13 @@ function ChoiceButton({
   loading?: boolean;
   onPress: () => void;
 }) {
+  // Press feedback is driven by state rather than Pressable's `style={({pressed}) => …}`
+  // callback form: under this Expo 56 / NativeWind setup a function `style` on a
+  // Pressable in this subtree renders an empty view — no background, no children.
+  // Verified in the simulator: identical markup with a static style object renders
+  // correctly, and it reproduces with the React Compiler disabled.
+  const [pressed, setPressed] = useState(false);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -170,14 +178,16 @@ function ChoiceButton({
       accessibilityState={{ disabled: disabled || loading }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => ({
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={{
         paddingVertical: 14, paddingHorizontal: 18, borderRadius: 16,
         backgroundColor: filled ? color : Colors.bgCardElev,
         borderWidth: filled ? 0 : 1,
         borderColor: Colors.border,
         opacity: disabled && !loading ? 0.4 : pressed ? 0.75 : 1,
         flexDirection: 'row', alignItems: 'center', gap: 12,
-      })}
+      }}
     >
       <View style={{ flex: 1 }}>
         <Text

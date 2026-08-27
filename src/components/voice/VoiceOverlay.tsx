@@ -19,11 +19,14 @@ export function VoiceOverlay({
   accent,
   topInset = 50,
   sessionRef,
+  embedded = false,
 }: {
   flow: VoiceFlow;
   accent: string;
   topInset?: number;
   sessionRef: RefObject<VoiceSessionHandle | null>;
+  /** Rendered in the iPad/web card rather than the full-screen phone modal. */
+  embedded?: boolean;
 }) {
   const { state } = flow;
 
@@ -31,7 +34,12 @@ export function VoiceOverlay({
 
   if (state.kind === 'picking') {
     return (
-      <CoachPicker onSelect={flow.pickCoach} onCancel={flow.cancel} topInset={topInset} />
+      <CoachPicker
+        onSelect={flow.pickCoach}
+        onCancel={flow.cancel}
+        topInset={topInset}
+        embedded={embedded}
+      />
     );
   }
 

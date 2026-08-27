@@ -1,39 +1,21 @@
-import React from 'react';
-
 import type { SummaryViewProps } from '@/lib/threadTemplates';
-import { ThreadChat } from './ThreadChat';
+import { ThreadChatTab } from './ThreadChatTab';
 
 /**
  * Voice threads read as an ordinary conversation: each spoken clip is a user
- * message and the coach's reply follows it, both already timestamped by
- * ThreadChat. Nothing here needs to know a message arrived by voice — the
- * distinction lives in `meta.voice` for the Obsidian exporter, not the UI.
+ * message and the coach's reply follows it, both already timestamped. Nothing
+ * here needs to know a message arrived by voice — the distinction lives in
+ * `meta.voice` for the Obsidian exporter, not the UI.
  *
- * The composer stays live so you can follow up by typing without recording.
+ * Renders the message list only. A SummaryView is scroll *content*: ThreadDetail
+ * wraps it in a ScrollView and owns the composer underneath. Rendering ThreadChat
+ * here instead put a second composer on the screen (ThreadChat is a full-height
+ * screen that brings its own) and collapsed the layout, since a flex:1 screen
+ * nested inside a ScrollView has no height to fill.
+ *
+ * Typing a follow-up still works — through ThreadDetail's composer, the one that
+ * was always meant to be there.
  */
-export function VoiceSessionSummary({
-  thread,
-  tasks,
-  messages,
-  onSendMessage,
-  readOnly,
-}: SummaryViewProps) {
-  const handleSend = React.useCallback(
-    async (text: string, taskRef?: string) => {
-      if (onSendMessage) {
-        return onSendMessage(text, taskRef);
-      }
-    },
-    [onSendMessage],
-  );
-
-  return (
-    <ThreadChat
-      thread={thread}
-      tasks={tasks}
-      messages={messages}
-      onSend={handleSend}
-      readOnly={readOnly}
-    />
-  );
+export function VoiceSessionSummary({ thread, messages }: SummaryViewProps) {
+  return <ThreadChatTab thread={thread} messages={messages} />;
 }

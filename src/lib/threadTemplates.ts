@@ -9,6 +9,7 @@ import { WorkoutLoggingSummary } from '@/components/thread/WorkoutLoggingSummary
 import { FocusTimeSummary } from '@/components/thread/FocusTimeSummary';
 import { CleanRitualSummary } from '@/components/thread/CleanRitualSummary';
 import { CatchUpSummary } from '@/components/thread/CatchUpSummary';
+import { VoiceSessionSummary } from '@/components/thread/VoiceSessionSummary';
 
 import type { CoachId, Thread, Task, TaskStatus, ThreadMessage } from './threads';
 
@@ -121,6 +122,20 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateConfig> = {
     carryOver: false,
     seedTasks: [],
     SummaryView: FreeformSummaryView,
+  },
+
+  // One thread per coach per day. Created on demand by long-pressing the mic —
+  // never by the reset cron, which is why the cadence stays 'none' even though
+  // the period_key ("<date>:<coach>") is date-scoped.
+  voice_session: {
+    cadence: 'none',
+    creation: 'api',
+    tag: '#Voice',
+    title: 'Voice',
+    defaultCoach: 'arjun',
+    carryOver: false,
+    seedTasks: [],
+    SummaryView: VoiceSessionSummary,
   },
 
   meal_logging: {

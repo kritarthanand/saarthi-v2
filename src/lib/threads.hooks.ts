@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiFetch } from './api';
-import type { Task, TaskStatus, Thread, ThreadMessage } from './threads';
+import { getProxyUrl } from './config';
+import type { CoachId, Task, TaskStatus, Thread, ThreadMessage } from './threads';
 
 // ── Wire types (snake_case from FastAPI) ──────────────────────────────────────
 
@@ -350,21 +351,34 @@ function uuidv4(): string {
  * Generates an idempotency_key (uuid v4) per send so retried POSTs from a
  * flaky network / double-tap don't double-bill the LLM.
  */
+export type SendMessageOptions = {
+  role?: string;
+  /**
+   * Set false to persist the message without triggering an AI reply. Voice
+   * segments use this so a multi-segment sitting gets one reply at the end
+   * (via useRequestReply) instead of one per clip. Defaults true server-side.
+   */
+  reply?: boolean;
+  meta?: Record<string, unknown>;
+};
+
 export function useSendMessage(): (
   threadId: string,
   content: string,
   taskRef?: string,
-  role?: string,
+  opts?: SendMessageOptions,
 ) => Promise<{ user: ThreadMessage; ai: ThreadMessage | null }> {
-  return useCallback(async (threadId, content, taskRef, role = 'user') => {
+  return useCallback(async (threadId, content, taskRef, opts) => {
     const resp = await apiFetch<{ user_message: WireMessage; ai_message: WireMessage | null }>(
       `/threads/${threadId}/messages`,
       {
         method: 'POST',
         body: JSON.stringify({
-          role,
+          role: opts?.role ?? 'user',
           content,
           task_ref: taskRef ?? null,
+          meta: opts?.meta ?? {},
+          reply: opts?.reply ?? true,
           idempotency_key: uuidv4(),
         }),
       },
@@ -373,6 +387,65 @@ export function useSendMessage(): (
       user: toMessage(resp.user_message),
       ai: resp.ai_message ? toMessage(resp.ai_message) : null,
     };
+  }, []);
+}
+
+/**
+ * Start (or rejoin) today's voice thread with a Pandava.
+ *
+ * Idempotent per (coach, day): the server keys on a composite period_key, so
+ * long-pressing the same brother twice in one day lands you back in the same
+ * thread rather than spawning a second one.
+ */
+export function useStartVoiceSession(): (
+  coachId: CoachId,
+  opts?: { title?: string; tag?: string; systemPrompt?: string },
+) => Promise<Thread> {
+  return useCallback(async (coachId, opts) => {
+    const resp = await apiFetch<{ thread: WireThread; created: boolean }>(
+      '/threads/voice-session',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          coach_id: coachId,
+          title: opts?.title ?? null,
+          tag: opts?.tag ?? null,
+          system_prompt: opts?.systemPrompt ?? null,
+        }),
+      },
+    );
+    return toThread(resp.thread);
+  }, []);
+}
+
+/** Ask the coach to reply to the sitting so far, without adding a new message. */
+export function useRequestReply(): (threadId: string) => Promise<ThreadMessage> {
+  return useCallback(async (threadId) => {
+    const resp = await apiFetch<{ ai_message: WireMessage }>(
+      `/threads/${threadId}/reply`,
+      { method: 'POST' },
+    );
+    return toMessage(resp.ai_message);
+  }, []);
+}
+
+export type ExportResult = {
+  status: string;
+  day?: string;
+  database?: string;
+  pages_written?: number;
+  pages_unchanged?: number;
+  sessions?: number;
+  error?: string;
+};
+
+/**
+ * Write this thread's day out to Notion. Used by the "dump"
+ * option; the "respond" path exports on its own, server-side.
+ */
+export function useExportThread(): (threadId: string) => Promise<ExportResult> {
+  return useCallback(async (threadId) => {
+    return apiFetch<ExportResult>(`/threads/${threadId}/export`, { method: 'POST' });
   }, []);
 }
 
@@ -407,49 +480,52 @@ export function usePatchThread(): (
 }
 
 /**
- * Upload an audio recording (file:// URI from expo-audio) directly to OpenAI
- * Whisper and return the transcript text. The FormData entry uses the RN-only
+ * Upload an audio recording (file:// URI from expo-audio) to the Saarthi server
+ * and return the transcript text. The FormData entry uses the RN-only
  * { uri, type, name } shape — NOT a Blob.
  *
- * Uses XMLHttpRequest because Expo SDK 56's WinterCG fetch rejects the legacy
- * RN `{uri, name, type}` FormData part shape.
+ * Uses XMLHttpRequest, not fetch, even though the request now targets our own
+ * server rather than OpenAI directly. Expo SDK 56's global fetch is a WinterCG
+ * polyfill (installed unconditionally unless EXPO_PUBLIC_USE_RN_FETCH is set —
+ * see node_modules/expo/src/winter/runtime.native.ts), and its FormData
+ * converter only accepts a Blob or an object with `bytes` on it
+ * (node_modules/expo/src/winter/fetch/convertFormData.ts) — it throws
+ * "Unsupported FormDataPart implementation" for RN's `{uri, name, type}` part
+ * regardless of which URL fetch is pointed at. XHR routes through RN's native
+ * networking layer instead, which still accepts the legacy shape.
  */
 export function useTranscribe(): (
   audio: { uri: string; type?: string; name?: string },
 ) => Promise<string> {
   return useCallback(async ({ uri, type = 'audio/m4a', name = 'recording.m4a' }) => {
-    const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-    if (!key) throw new Error('EXPO_PUBLIC_OPENAI_API_KEY is not configured');
-
+    const base = await getProxyUrl();
     const form = new FormData();
     form.append('file', { uri, type, name } as unknown as Blob);
-    form.append('model', 'whisper-1');
     return new Promise<string>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'https://api.openai.com/v1/audio/transcriptions');
-      xhr.setRequestHeader('Authorization', `Bearer ${key}`);
+      xhr.open('POST', `${base}/transcribe`);
       xhr.timeout = 30_000;
       xhr.ontimeout = () => reject(new Error('transcription timed out'));
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
-            const json = JSON.parse(xhr.responseText) as { text: string };
+            const json = JSON.parse(xhr.responseText) as { text?: string };
             resolve(json.text ?? '');
           } catch (e) {
-            reject(new Error(`bad json from openai transcriptions: ${String(e)}`));
+            reject(new Error(`bad json from /transcribe: ${String(e)}`));
           }
         } else {
           let detail = `HTTP ${xhr.status}`;
           try {
-            const body = JSON.parse(xhr.responseText) as { error?: { message?: string } };
-            if (typeof body.error?.message === 'string') detail = body.error.message;
+            const body = JSON.parse(xhr.responseText) as { detail?: string };
+            if (typeof body.detail === 'string') detail = body.detail;
           } catch {
             /* keep generic */
           }
           reject(Object.assign(new Error(detail), { status: xhr.status }));
         }
       };
-      xhr.onerror = () => reject(new Error('network error during openai transcriptions'));
+      xhr.onerror = () => reject(new Error('network error during /transcribe'));
       xhr.send(form);
     });
   }, []);

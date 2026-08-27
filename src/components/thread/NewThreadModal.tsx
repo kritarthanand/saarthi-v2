@@ -37,6 +37,9 @@ export function NewThreadModal({
 
   const [creating, setCreating] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // See the note in src/components/voice/SessionChoice.tsx: Pressable's
+  // `style={({pressed}) => …}` callback form is dropped in this app.
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
   const createThread = useCreateThread();
   const upsertOccurrence = useUpsertOccurrence();
 
@@ -127,8 +130,10 @@ export function NewThreadModal({
               disabled={!!creating}
               accessibilityRole="button"
               accessibilityLabel={`Create ${config.title} thread`}
-              style={({ pressed }) => ({
-                backgroundColor: pressed && !creating ? Colors.bgCardElev : 'transparent',
+              onPressIn={() => setPressedKey(key)}
+              onPressOut={() => setPressedKey(null)}
+              style={{
+                backgroundColor: pressedKey === key && !creating ? Colors.bgCardElev : 'transparent',
                 paddingHorizontal: 16,
                 paddingVertical: 10,
                 flexDirection: 'row',
@@ -137,7 +142,7 @@ export function NewThreadModal({
                 borderBottomWidth: isLast ? 0 : 1,
                 borderBottomColor: Colors.border,
                 opacity: creating && !isLoading ? 0.4 : 1,
-              })}
+              }}
             >
               {/* Compact icon */}
               <View

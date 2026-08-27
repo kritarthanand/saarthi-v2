@@ -2,7 +2,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, View, StyleSheet } from 'react-native';
 
 import { Colors, threadTheme } from '@/constants/theme';
-import { useProfile } from '@/hooks/useProfile';
+import { useClock } from '@/hooks/useClock';
+import { formatDayKey } from '@/lib/time';
 import type { Thread } from '@/lib/threads';
 import { useThreads } from '@/lib/threads.hooks';
 import { AppHeader } from '../AppHeader';
@@ -16,40 +17,6 @@ type DayGroup = {
   threads: Thread[];
 };
 
-function formatTime(isoString: string): string {
-  const d = new Date(isoString);
-  let h = d.getHours();
-  const m = d.getMinutes();
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
-}
-
-// Returns a YYYY-MM-DD key adjusted for day_start_hour.
-// If a thread was created before the day starts (e.g. 4 AM when day starts at 5 AM),
-// it belongs to the previous calendar day.
-function userDayKey(isoString: string, dayStartHour: number): string {
-  const d = new Date(isoString);
-  if (d.getHours() < dayStartHour) {
-    d.setDate(d.getDate() - 1);
-  }
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function userTodayKey(dayStartHour: number): string {
-  return userDayKey(new Date().toISOString(), dayStartHour);
-}
-
-function userYesterdayKey(dayStartHour: number): string {
-  return userDayKey(new Date(Date.now() - 86400000).toISOString(), dayStartHour);
-}
-
-function dayLabel(dateKey: string, dayStartHour: number): string {
-  if (dateKey === userTodayKey(dayStartHour)) return 'Today';
-  if (dateKey === userYesterdayKey(dayStartHour)) return 'Yesterday';
-  const d = new Date(dateKey + 'T12:00:00');
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
 
 function threadPreview(t: Thread): string {
   if (t.last_message_preview) return t.last_message_preview;
@@ -57,19 +24,25 @@ function threadPreview(t: Thread): string {
   return t.title || t.template.replace(/_/g, ' ');
 }
 
-function groupByDay(threads: Thread[], dayStartHour: number): DayGroup[] {
+function groupByDay(threads: Thread[], clock: ReturnType<typeof useClock>): DayGroup[] {
   const map = new Map<string, Thread[]>();
   const sorted = [...threads].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
   for (const t of sorted) {
-    const key = userDayKey(t.created_at, dayStartHour);
+    // Profile timezone, so these headings agree with the ritual day the server
+    // filed the thread under. Device-local grouping put yesterday's sittings
+    // under "Today" whenever the device sat in another zone.
+    const key = clock.day(t.created_at);
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(t);
   }
+  const today = clock.today();
+  const yesterday = clock.yesterday();
   return [...map.entries()].map(([dateKey, ts]) => ({
     dateKey,
-    label: dayLabel(dateKey, dayStartHour),
+    label:
+      dateKey === today ? 'Today' : dateKey === yesterday ? 'Yesterday' : formatDayKey(dateKey),
     threads: ts,
   }));
 }
@@ -87,10 +60,9 @@ export function ChatHistoryView({
 }) {
   const [count, setCount] = useState(PAGE);
   const { threads: allThreads, loading, error } = useThreads();
-  const { profile } = useProfile();
-  const dayStartHour = profile.day_start_hour;
+  const clock = useClock();
 
-  const days = useMemo(() => groupByDay(allThreads, dayStartHour), [allThreads, dayStartHour]);
+  const days = useMemo(() => groupByDay(allThreads, clock), [allThreads, clock]);
   const data = days.slice(0, count);
 
   const loadMore = useCallback(() => {
@@ -224,7 +196,7 @@ export function ChatHistoryView({
                 <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 }}>
                   <Text style={{ fontSize: 14, color: theme.color, fontWeight: '700' }}>{t.tag}</Text>
                   <Text style={{ fontSize: 11, color: Colors.textFaint, fontWeight: '500' }}>
-                    {formatTime(t.created_at)}
+                    {clock.time(t.created_at)}
                   </Text>
                 </View>
                 <Text numberOfLines={1} style={{ fontSize: 12.5, color: Colors.textDim, fontWeight: '500' }}>

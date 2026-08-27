@@ -22,7 +22,7 @@ from supabase import create_client, Client
 
 import llm
 import notion
-import obsidian
+import voice_sessions
 
 load_dotenv()
 
@@ -918,8 +918,8 @@ def upsert_occurrence(body: OccurrenceBody, response: Response):
     return {"thread": thread_out, "created": created}
 
 
-# Single source of truth lives in obsidian.py, which keys its export query off it.
-VOICE_TEMPLATE = obsidian.VOICE_TEMPLATE
+# Single source of truth lives in voice_sessions.py, which keys its export off it.
+VOICE_TEMPLATE = voice_sessions.VOICE_TEMPLATE
 
 
 @app.post("/threads/voice-session")
@@ -961,7 +961,7 @@ def start_voice_session(body: VoiceSessionBody, response: Response):
     created = False
 
     if row is None:
-        coach_name = obsidian.COACH_NAMES.get(body.coach_id, body.coach_id.title())
+        coach_name = voice_sessions.coach_name(body.coach_id)
         payload: dict[str, Any] = {
             "user_id": user_id,
             "template": VOICE_TEMPLATE,
@@ -1605,22 +1605,11 @@ def create_message(thread_id: str, body: CreateMessageBody):
     }
 
 
-# ── Voice session reply + Obsidian export ─────────────────────────────────────
-
-def _export_backends() -> list[Any]:
-    """Whichever export targets are configured, in a stable order.
-
-    Both are optional and both can run at once — they write to different places
-    and neither reads the other. With none configured this is empty and export
-    is a no-op, which is the default.
-    """
-    return [b for b in (obsidian, notion) if b.is_enabled()]
-
+# ── Voice session reply + export ─────────────────────────────────────
 
 def _export_voice_day(user_id: str, thread_row: dict) -> dict:
-    """Export `thread_row`'s day to every configured target. Never raises."""
-    backends = _export_backends()
-    if not backends:
+    """Export `thread_row`'s day to Notion. Never raises."""
+    if not notion.is_enabled():
         return {"status": "disabled"}
 
     db = get_supabase()
@@ -1628,20 +1617,11 @@ def _export_voice_day(user_id: str, thread_row: dict) -> dict:
     # A freeform thread has no period_key to read a day off, so fall back to the
     # day the sitting just happened on — export fires right after one.
     today = _daily_period_key(datetime.now(timezone.utc), tz, day_start_hour)
-    day_key = obsidian.day_key_for_thread(thread_row, fallback=today)
+    day_key = voice_sessions.day_key_for_thread(thread_row, fallback=today)
     if not day_key:
         return {"status": "no_day_key"}
 
-    results = {
-        b.__name__: b.export_day(db, user_id, day_key, tz, day_start_hour)
-        for b in backends
-    }
-
-    # Collapse to one status so the client keeps its simple contract: an error
-    # only if every configured target failed, since a partial write still landed.
-    statuses = [r.get("status") for r in results.values()]
-    status = "error" if all(s == "error" for s in statuses) else "updated"
-    return {"status": status, "day": day_key, "targets": results}
+    return notion.export_day(db, user_id, day_key, tz, day_start_hour)
 
 
 @app.post("/threads/{thread_id}/reply")
@@ -1668,7 +1648,7 @@ def request_reply(thread_id: str, background: BackgroundTasks):
 
 @app.post("/threads/{thread_id}/export")
 def export_thread(thread_id: str):
-    """Write this thread's day to the Obsidian daily note.
+    """Write this thread's day out to Notion.
 
     Used by the "Dump" option (segments saved, no reply wanted) and as manual
     repair/backfill. Runs inline rather than backgrounded so the caller learns

@@ -1,18 +1,14 @@
-"""Notion export for voice sessions — the alternative backend to obsidian.py.
+"""Notion export for voice sessions.
 
-Same contract as obsidian.export_day(db, user_id, day_key, tz), so main.py can
-pick either at runtime. Two things make this simpler than the Obsidian path:
-
-- The exporter *owns* the pages it writes. obsidian.py is a guest in a file the
-  user also edits by hand, which is where its marker fences, splicing, atomic
-  writes and mtime re-checks come from. Here a re-render is just "clear this
-  page's children and append the new ones", and none of that is needed.
-- No unsaved-editor-buffer hazard. That was a limit obsidian.py explicitly could
-  not solve; Notion is the source of truth server-side, so it simply is not one.
+Replaced an earlier Obsidian daily-note backend (see git history). Writing into a
+file the user also edits by hand needed marker fences, splicing, atomic writes
+and mtime re-checks, and still could not survive an unsaved editor buffer. Here
+the exporter owns the pages outright, so a re-render is just "clear this page's
+children and append the new ones", and Notion is authoritative server-side.
 
 What it costs instead is the network: auth, rate limits and transient failures.
-Like the Obsidian path, export is a side effect of a chat write and must never
-fail the request that triggered it, so everything here degrades to a status dict.
+Export is a side effect of a chat write and must never fail the request that
+triggered it, so everything here degrades to a status dict.
 
 Disabled (every entry point a no-op) when NOTION_TOKEN is unset.
 
@@ -294,7 +290,7 @@ def content_hash(blocks: list[dict]) -> str:
 def _clear_children(client: httpx.Client, page_id: str) -> None:
     """Delete every existing block so the page can be re-rendered wholesale.
 
-    Same reasoning as the Obsidian region: a late reply has to be able to repair
+    A late reply has to be able to repair
     the page, so each export rewrites rather than appends.
     """
     cursor: str | None = None
@@ -340,7 +336,7 @@ def export_day(
 ) -> dict[str, Any]:
     """Rewrite one Notion page per (day, coach) for `day_key`.
 
-    Mirrors obsidian.export_day's contract exactly, including never raising.
+    Never raises.
     """
     if not is_enabled():
         return {"status": "disabled"}

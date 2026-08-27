@@ -429,15 +429,9 @@ export function useRequestReply(): (threadId: string) => Promise<ThreadMessage> 
   }, []);
 }
 
-/**
- * Export can fan out to more than one target (Obsidian, Notion), so the
- * per-target detail is nested. The top-level `status` is 'error' only when every
- * configured target failed — a partial write still landed somewhere.
- */
-export type ExportTargetResult = {
+export type ExportResult = {
   status: string;
   day?: string;
-  path?: string;
   database?: string;
   pages_written?: number;
   pages_unchanged?: number;
@@ -445,14 +439,8 @@ export type ExportTargetResult = {
   error?: string;
 };
 
-export type ExportResult = {
-  status: string;
-  day?: string;
-  targets?: Record<string, ExportTargetResult>;
-};
-
 /**
- * Write this thread's day into the Obsidian daily note. Used by the "dump"
+ * Write this thread's day out to Notion. Used by the "dump"
  * option; the "respond" path exports on its own, server-side.
  */
 export function useExportThread(): (threadId: string) => Promise<ExportResult> {

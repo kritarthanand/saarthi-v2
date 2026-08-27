@@ -1,9 +1,8 @@
 """Shared domain logic for voice sessions, independent of where they get exported.
 
 A "sitting" is one run of clips grouped by meta.session_id, with the coach's reply
-attached. Both export backends (obsidian.py, notion.py) render the same sittings —
-only the output format differs — so the reading and grouping live here rather than
-in whichever backend happened to be written first.
+attached. Reading and grouping live here rather than in notion.py so the domain
+rules stay independent of where a sitting gets written.
 """
 
 from __future__ import annotations

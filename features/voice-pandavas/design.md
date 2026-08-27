@@ -4,6 +4,22 @@
 > pick a Pandava, talk for 2 minutes, and either keep going, get a reply, or dump
 > it — with every session landing in an Obsidian vault.
 
+> **Superseded in part.** This is the design as written before the feature was
+> built; it is kept for the reasoning, not as a description of the code.
+> What changed once it ran:
+>
+> - **Obsidian was replaced by Notion** (`server/notion.py`; `obsidian.py` is
+>   deleted, see git history). Owning the pages outright removed the marker
+>   fences, splicing, atomic writes and mtime races below — and the unsaved-buffer
+>   hazard in *Risks*, which that design could not solve. It also frees the server
+>   from having to run on the same machine as the vault.
+> - **Export is no longer voice-thread-only.** Sittings are collected from the
+>   messages, so clips spoken inside a ritual or freeform thread export too,
+>   merged into that coach's page for the day and labelled with their source.
+> - **Threads are named after the Pandava** (`#Arjun`, not `#Voice`).
+> - **The same sitting loop runs from inside a thread**, not just the floating
+>   mic; dictation moved to a long press.
+
 ## Where we are today
 
 Voice is currently **dictation into whichever thread is open**:

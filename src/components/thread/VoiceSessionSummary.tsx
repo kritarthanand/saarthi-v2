@@ -5,7 +5,7 @@ import { ThreadChatTab } from './ThreadChatTab';
  * Voice threads read as an ordinary conversation: each spoken clip is a user
  * message and the coach's reply follows it, both already timestamped. Nothing
  * here needs to know a message arrived by voice — the distinction lives in
- * `meta.voice` for the Obsidian exporter, not the UI.
+ * `meta.voice` for the exporter, not the UI.
  *
  * Renders the message list only. A SummaryView is scroll *content*: ThreadDetail
  * wraps it in a ScrollView and owns the composer underneath. Rendering ThreadChat

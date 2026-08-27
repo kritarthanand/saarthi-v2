@@ -5,7 +5,7 @@
 -- the rows created before that change.
 --
 -- Display only: every code path keys off template = 'voice_session', never the tag,
--- so nothing behavioural depends on this (the Obsidian exporter included).
+-- so nothing behavioural depends on this (the exporter included).
 --
 -- Idempotent: scoped to rows still carrying the old '#Voice' tag, so re-running is
 -- a no-op and a thread the user has since renamed by hand is left alone.

@@ -244,12 +244,7 @@ export function useVoiceFlow({
     try {
       const res = await exportThread(threadId);
       if (res.status === 'error') {
-        // Only reached when every configured target failed; name each reason,
-        // since "export failed" alone doesn't say whether it was the vault or Notion.
-        const reasons = Object.entries(res.targets ?? {})
-          .map(([target, r]) => `${target}: ${r.error ?? r.status}`)
-          .join('; ');
-        throw new Error(reasons || 'export failed');
+        throw new Error(res.error || 'export failed');
       }
       onThreadsChanged();
       reset();

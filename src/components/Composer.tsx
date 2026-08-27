@@ -8,6 +8,7 @@ export function Composer({
   placeholder = 'Message Saarthi…',
   onSend,
   onMic,
+  onMicLongPress,
   accent = Colors.accent,
   hashtag,
   paddingBottom = 100,
@@ -17,6 +18,8 @@ export function Composer({
   placeholder?: string;
   onSend?: (text: string) => void;
   onMic?: () => void;
+  /** Long-press: dictate into this box instead of starting a sitting. */
+  onMicLongPress?: () => void;
   accent?: string;
   hashtag?: string;
   paddingBottom?: number;
@@ -125,8 +128,11 @@ export function Composer({
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Switch to voice"
+          accessibilityLabel="Talk to your coach"
+          accessibilityHint="Long press to dictate into the message box instead"
           onPress={onMic}
+          onLongPress={onMicLongPress}
+          delayLongPress={350}
           style={{
             width: 44, height: 44, borderRadius: 22,
             backgroundColor: accent,

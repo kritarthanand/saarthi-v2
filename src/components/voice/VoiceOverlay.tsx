@@ -99,6 +99,7 @@ export function VoiceOverlay({
       onRespond={flow.respond}
       onDump={flow.dump}
       topInset={topInset}
+      canExport={ctx.canExport}
     />
   );
 }

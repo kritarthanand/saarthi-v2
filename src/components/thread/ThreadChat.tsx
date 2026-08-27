@@ -11,6 +11,7 @@ export type ThreadChatProps = {
   messages: ThreadMessage[];
   onSend: (text: string, taskRef?: string) => Promise<void>;
   onMic?: () => void;
+  onMicLongPress?: () => void;
   bottomInset?: number;
   readOnly?: boolean;
   /**
@@ -36,6 +37,7 @@ export function ThreadChat({
   messages,
   onSend,
   onMic,
+  onMicLongPress,
   bottomInset = 0,
   readOnly = false,
   sentCount = 0,
@@ -179,6 +181,7 @@ export function ThreadChat({
         paddingBottom={composerPaddingBottom}
         onSend={handleSend}
         onMic={onMic}
+        onMicLongPress={onMicLongPress}
         pendingText={pendingComposerText}
         onPendingTextConsumed={onPendingComposerTextConsumed}
       />

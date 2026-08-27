@@ -69,10 +69,9 @@ export default function AppRoot() {
     setOpenThreadId(morning?.id ?? threads[0]!.id);
   }, [threads, mode]);
 
-  // The floating mic only renders when no thread is open, so a short press there
-  // has no Composer to dictate into — both presses open the Pandava picker.
-  // Dictation stays reachable from the in-thread mic (ThreadDetail's `onMic`),
-  // which is the only place a transcript has somewhere to land.
+  // Two entry points, one loop. The floating mic (no thread open) opens the
+  // Pandava picker; the in-thread mic starts the same sitting on the thread you
+  // are already in, so "keep talking / get a reply / leave it" works from both.
   // See src/hooks/useVoiceFlow.ts.
   const flow = useVoiceFlow({
     onDictated: setPendingComposerText,
@@ -143,7 +142,8 @@ export default function AppRoot() {
             <ThreadDetail
               threadId={openThreadId}
               onClose={() => { setOpenThreadId(null); refresh(); }}
-              onMic={flow.openDictation}
+              onMic={flow.openThreadSession}
+              onMicLongPress={flow.openDictation}
               pendingComposerText={pendingComposerText}
               onPendingComposerTextConsumed={() => setPendingComposerText(undefined)}
               topInset={Math.max(insets.top, 12) + 34}
@@ -253,7 +253,8 @@ export default function AppRoot() {
             key={openThreadId}
             threadId={openThreadId}
             onClose={() => { setOpenThreadId(null); refresh(); }}
-            onMic={flow.openDictation}
+            onMic={flow.openThreadSession}
+            onMicLongPress={flow.openDictation}
             pendingComposerText={pendingComposerText}
             onPendingComposerTextConsumed={() => setPendingComposerText(undefined)}
             embedded

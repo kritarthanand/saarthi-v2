@@ -20,6 +20,7 @@ export function ThreadDetail({
   threadId,
   onClose,
   onMic,
+  onMicLongPress,
   topInset = 50,
   bottomInset = 0,
   embedded = false,
@@ -28,7 +29,9 @@ export function ThreadDetail({
 }: {
   threadId: string;
   onClose: () => void;
-  onMic: () => void;
+  /** Receives the loaded thread — the caller's list may not contain it. */
+  onMic: (thread: Thread) => void;
+  onMicLongPress?: () => void;
   topInset?: number;
   bottomInset?: number;
   embedded?: boolean;
@@ -363,7 +366,8 @@ export function ThreadDetail({
           tasks={localTasks}
           messages={localMessages}
           onSend={handleChatSend}
-          onMic={onMic}
+          onMic={() => onMic(thread)}
+          onMicLongPress={onMicLongPress}
           bottomInset={bottomInset}
           sentCount={sentCount}
           aiTyping={aiTyping}
@@ -420,7 +424,8 @@ export function ThreadDetail({
             placeholder={tab === 'summary' ? `add to ${thread.tag}…` : 'Message Saarthi…'}
             paddingBottom={Math.max(bottomInset, 12) + 16}
             onSend={(text) => handleSendMessage(text).catch(console.error)}
-            onMic={onMic}
+            onMic={() => onMic(thread)}
+            onMicLongPress={onMicLongPress}
             pendingText={pendingComposerText}
             onPendingTextConsumed={onPendingComposerTextConsumed}
           />

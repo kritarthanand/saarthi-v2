@@ -1336,13 +1336,18 @@ _VOICE_SYSTEM = (
 def _assemble_system_prompt(
     thread_row: dict,
     open_tasks: list[dict],
+    voice: bool = False,
 ) -> str:
     """Static base + optional user_instructions wrap + thread_tasks block.
 
     Caps total at _PROMPT_CHAR_CAP. If over, drop oldest tasks first.
     Caller separately trims history when system is rebuilt with fewer tasks.
     """
-    base = _VOICE_SYSTEM if thread_row.get("template") == VOICE_TEMPLATE else _BASE_SYSTEM
+    # Voice framing follows the *messages*, not the thread: a clip recorded from
+    # inside a ritual thread is still a Whisper transcript and has to be read for
+    # intent rather than answered literally.
+    spoken = voice or thread_row.get("template") == VOICE_TEMPLATE
+    base = _VOICE_SYSTEM if spoken else _BASE_SYSTEM
     parts: list[str] = [base]
     sp = (thread_row.get("system_prompt") or "").strip()
     if sp:
@@ -1413,7 +1418,7 @@ def _generate_ai_reply(
     # Load last N messages (chronological, including the user row we just inserted).
     history_rows = (
         db.table("v2_thread_messages")
-        .select("role, content, created_at")
+        .select("role, content, meta, created_at")
         .eq("thread_id", thread_id)
         .in_("role", ["user", "ai"])
         .order("created_at", desc=True)
@@ -1423,7 +1428,10 @@ def _generate_ai_reply(
     )
     history_rows = list(reversed(history_rows))  # chronological
 
-    system = _assemble_system_prompt(thread_row, task_rows)
+    spoken = any(
+        (r.get("meta") or {}).get("voice") for r in history_rows if r.get("role") == "user"
+    )
+    system = _assemble_system_prompt(thread_row, task_rows, voice=spoken)
     messages = _history_to_messages(history_rows)
 
     # If even the system prompt + history is enormous, trim history to last 15.
@@ -1436,6 +1444,13 @@ def _generate_ai_reply(
             profile_row.get("preferred_chat_model"),
         )
         reply_text = llm.chat_complete(provider, model, system, messages)
+        if not reply_text:
+            # Completions come back empty transiently — seen once against gpt-4o
+            # on a voice sitting that replied fine on the very next call. The
+            # fallback below is persisted as an ordinary AI message, so a blip
+            # ends up looking like the coach's actual answer and is never retried.
+            # One cheap retry removes the common case.
+            reply_text = llm.chat_complete(provider, model, system, messages)
         if not reply_text:
             reply_text = "(no reply)"
         ai_row = (

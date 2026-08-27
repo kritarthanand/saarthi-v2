@@ -28,6 +28,12 @@ export type SessionCtx = {
   /** Clips saved so far. */
   segment: number;
   totalSeconds: number;
+  /**
+   * Whether "just leave it" has a note to write. The server only defines export
+   * for voice_session threads, so a sitting recorded inside a ritual thread ends
+   * by simply closing — the clips are already saved either way.
+   */
+  canExport: boolean;
 };
 
 export type VoiceFlowState =
@@ -111,6 +117,7 @@ export function useVoiceFlow({
             sessionId: uuidv4(),
             segment: 0,
             totalSeconds: 0,
+            canExport: true,
           },
         });
       } catch (e) {
@@ -125,6 +132,30 @@ export function useVoiceFlow({
       }
     },
     [startVoiceSession, onThreadsChanged, reset],
+  );
+
+  /**
+   * Start a sitting on a thread that already exists — the mic inside a thread.
+   * Same loop as the Pandava flow (clip → keep talking / get a reply / leave it),
+   * minus the picker, because the thread already says who you are talking to.
+   */
+  const openThreadSession = useCallback(
+    (thread: { id: string; coach_id: CoachId; template: string }) => {
+      setError(null);
+      setBusy(null);
+      setState({
+        kind: 'recording',
+        ctx: {
+          coachId: thread.coach_id,
+          threadId: thread.id,
+          sessionId: uuidv4(),
+          segment: 0,
+          totalSeconds: 0,
+          canExport: thread.template === 'voice_session',
+        },
+      });
+    },
+    [],
   );
 
   /**
@@ -215,7 +246,13 @@ export function useVoiceFlow({
 
   const dump = useCallback(async () => {
     if (state.kind !== 'choosing') return;
-    const { threadId } = state.ctx;
+    const { threadId, canExport } = state.ctx;
+    if (!canExport) {
+      // The clips are already on the thread; there is no note to write.
+      onThreadsChanged();
+      reset();
+      return;
+    }
     setBusy('export');
     setError(null);
     try {
@@ -261,6 +298,7 @@ export function useVoiceFlow({
     openDictation,
     openPicker,
     pickCoach,
+    openThreadSession,
     handleClip,
     continueTalking,
     respond,

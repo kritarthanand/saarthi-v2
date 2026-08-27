@@ -175,6 +175,10 @@ class CreateMessageBody(BaseModel):
 class VoiceSessionBody(BaseModel):
     coach_id: str
     title: str | None = None
+    # Voice threads are tagged with the coach's name (#Arjun, #Bheem, …) rather
+    # than a generic #Voice, so they read as the brother you talked to. Display
+    # only — every code path keys off template == "voice_session", never the tag.
+    tag: str | None = None
     # The coach persona, rendered client-side from src/constants/pandavas.ts.
     # Kept off the server on purpose: per-thread system_prompt stays the only
     # persona layer, and the user can edit it in ThreadEditSheet afterwards.
@@ -960,8 +964,8 @@ def start_voice_session(body: VoiceSessionBody, response: Response):
         payload: dict[str, Any] = {
             "user_id": user_id,
             "template": VOICE_TEMPLATE,
-            "tag": THREAD_TAGS[VOICE_TEMPLATE],
-            "title": body.title or f"Voice · {coach_name}",
+            "tag": body.tag or f"#{coach_name}",
+            "title": body.title or coach_name,
             "coach_id": body.coach_id,
             "period_key": period_key,
             "meta": {"voice": True},

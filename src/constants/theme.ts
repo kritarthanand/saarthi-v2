@@ -57,7 +57,15 @@ export const THREAD_THEMES: Record<string, ThreadTheme> = {
   '#FocusTime':       { color: '#5B8DEF', dim: 'rgba(91,141,239,0.14)',  glyph: '◆' },
   '#CleanRitual':     { color: '#5BC8EF', dim: 'rgba(91,200,239,0.14)',  glyph: '◯' },
   '#CatchUp':         { color: '#E07AA8', dim: 'rgba(224,122,168,0.14)', glyph: '✦' },
+  // Voice threads are tagged with the coach's own name (#Arjun, #Bheem, …), each
+  // mirroring that Pandava's accent from constants/pandavas.ts. `#Voice` stays as
+  // the fallback for a coachless voice thread made from the New Thread picker.
   '#Voice':           { color: '#5BC8EF', dim: 'rgba(91,200,239,0.14)', glyph: '◉' },
+  '#Nakula':          { color: '#E07AA8', dim: 'rgba(224,122,168,0.14)', glyph: '◉' },
+  '#Bheem':           { color: '#F08A3E', dim: 'rgba(240,138,62,0.14)',  glyph: '◉' },
+  '#Arjun':           { color: '#5BC8EF', dim: 'rgba(91,200,239,0.14)',  glyph: '◉' },
+  '#Yudi':            { color: '#3FBF7F', dim: 'rgba(63,191,127,0.14)',  glyph: '◉' },
+  '#Sahdev':          { color: '#8B7BD9', dim: 'rgba(139,123,217,0.14)', glyph: '◉' },
 };
 
 export const threadTheme = (tag: string): ThreadTheme =>

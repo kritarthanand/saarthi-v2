@@ -96,7 +96,10 @@ export function useVoiceFlow({
       try {
         const coach = COACHES_BY_ID[coachId];
         const thread = await startVoiceSession(coachId, {
-          title: `Voice · ${coach.name}`,
+          // The thread is the coach: title and tag both read as the Pandava's
+          // name rather than a generic "Voice".
+          title: coach.name,
+          tag: `#${coach.name}`,
           systemPrompt: buildCoachSystemPrompt(coach),
         });
         onThreadsChanged();

@@ -399,7 +399,7 @@ export function useSendMessage(): (
  */
 export function useStartVoiceSession(): (
   coachId: CoachId,
-  opts?: { title?: string; systemPrompt?: string },
+  opts?: { title?: string; tag?: string; systemPrompt?: string },
 ) => Promise<Thread> {
   return useCallback(async (coachId, opts) => {
     const resp = await apiFetch<{ thread: WireThread; created: boolean }>(
@@ -409,6 +409,7 @@ export function useStartVoiceSession(): (
         body: JSON.stringify({
           coach_id: coachId,
           title: opts?.title ?? null,
+          tag: opts?.tag ?? null,
           system_prompt: opts?.systemPrompt ?? null,
         }),
       },

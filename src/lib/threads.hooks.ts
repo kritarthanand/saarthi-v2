@@ -439,7 +439,8 @@ export type ExportTargetResult = {
   day?: string;
   path?: string;
   database?: string;
-  pages?: number;
+  pages_written?: number;
+  pages_unchanged?: number;
   sessions?: number;
   error?: string;
 };

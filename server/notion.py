@@ -24,6 +24,8 @@ afterwards to skip the lookup.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 from datetime import date
@@ -119,6 +121,11 @@ DB_PROPERTIES: dict[str, Any] = {
     # The idempotency key. One page per (day, coach); re-exporting finds this
     # rather than creating a duplicate.
     "Key": {"rich_text": {}},
+    # Fingerprint of the rendered blocks. Rewriting a page costs one HTTP DELETE
+    # per existing block, and export re-renders the whole day on every clip, so
+    # without this a no-op re-export was ~54s of deleting and re-appending
+    # identical content. Compared first; an unchanged page is left alone.
+    "Hash": {"rich_text": {}},
 }
 
 
@@ -139,12 +146,31 @@ def _find_existing_db(client: httpx.Client, parent_page_id: str) -> str | None:
     return None
 
 
+_props_checked: set[str] = set()
+
+
+def _ensure_properties(client: httpx.Client, db_id: str) -> None:
+    """Add any property this code needs that an older database is missing.
+
+    Notion ignores properties that already exist, so this is idempotent; it runs
+    once per process because the schema cannot drift underneath us mid-run.
+    """
+    if db_id in _props_checked:
+        return
+    try:
+        _request(client, "PATCH", f"/databases/{db_id}", json={"properties": DB_PROPERTIES})
+    except Exception:  # noqa: BLE001 — a missing property degrades, it doesn't break
+        logger.warning("notion: could not reconcile properties on %s", db_id, exc_info=True)
+    _props_checked.add(db_id)
+
+
 def ensure_database(client: httpx.Client) -> str:
     """Return the database id, creating the database if it does not exist yet."""
     global _db_id_cache
 
     pinned = _configured_db_id()
     if pinned:
+        _ensure_properties(client, pinned)
         return pinned
     if _db_id_cache:
         return _db_id_cache
@@ -156,6 +182,7 @@ def ensure_database(client: httpx.Client) -> str:
     existing = _find_existing_db(client, parent)
     if existing:
         _db_id_cache = existing
+        _ensure_properties(client, existing)
         return existing
 
     created = _request(
@@ -235,13 +262,27 @@ def render_blocks(sessions: list[dict], tz: ZoneInfo) -> list[dict]:
 
 # ── Page upsert ───────────────────────────────────────────────────────────────
 
-def _find_page(client: httpx.Client, db_id: str, key: str) -> str | None:
+def _find_page(client: httpx.Client, db_id: str, key: str) -> tuple[str, str] | None:
+    """The page for `key` and the content hash it was last written with."""
     data = _request(
         client, "POST", f"/databases/{db_id}/query",
         json={"filter": {"property": "Key", "rich_text": {"equals": key}}, "page_size": 1},
     )
     results = data.get("results", [])
-    return results[0]["id"] if results else None
+    if not results:
+        return None
+    page = results[0]
+    stored = "".join(
+        t.get("plain_text", "")
+        for t in (page.get("properties", {}).get("Hash", {}).get("rich_text") or [])
+    )
+    return page["id"], stored
+
+
+def content_hash(blocks: list[dict]) -> str:
+    return hashlib.sha256(
+        json.dumps(blocks, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()[:32]
 
 
 def _clear_children(client: httpx.Client, page_id: str) -> None:
@@ -274,7 +315,7 @@ def _append_children(client: httpx.Client, page_id: str, blocks: list[dict]) -> 
         )
 
 
-def _properties(coach: str, day: str, clips: int, seconds: int, key: str) -> dict:
+def _properties(coach: str, day: str, clips: int, seconds: int, key: str, digest: str) -> dict:
     return {
         "Name": {"title": [{"type": "text", "text": {"content": f"{coach} · {day}"}}]},
         "Date": {"date": {"start": day}},
@@ -282,6 +323,7 @@ def _properties(coach: str, day: str, clips: int, seconds: int, key: str) -> dic
         "Clips": {"number": clips},
         "Duration (s)": {"number": seconds},
         "Key": {"rich_text": [{"type": "text", "text": {"content": key}}]},
+        "Hash": {"rich_text": [{"type": "text", "text": {"content": digest}}]},
     }
 
 
@@ -310,7 +352,8 @@ def export_day(db: Any, user_id: str, day_key: str, tz: ZoneInfo) -> dict[str, A
         for session in sessions:
             by_coach.setdefault(session["coach_name"], []).append(session)
 
-        pages: list[str] = []
+        written = 0
+        skipped = 0
         with httpx.Client(timeout=_TIMEOUT) as client:
             db_id = ensure_database(client)
 
@@ -318,11 +361,19 @@ def export_day(db: Any, user_id: str, day_key: str, tz: ZoneInfo) -> dict[str, A
                 key = f"{day_key}:{coach.lower()}"
                 clips = sum(len(s["segments"]) for s in coach_sessions)
                 seconds = sum(session_duration(s) for s in coach_sessions)
-                props = _properties(coach, day_key, clips, seconds, key)
                 blocks = render_blocks(coach_sessions, tz)
+                digest = content_hash(blocks)
+                props = _properties(coach, day_key, clips, seconds, key, digest)
 
-                page_id = _find_page(client, db_id, key)
-                if page_id:
+                found = _find_page(client, db_id, key)
+                if found:
+                    page_id, stored = found
+                    if stored == digest:
+                        # Export re-renders the whole day, so most calls touch
+                        # coaches that did not change. Rewriting them would cost
+                        # a DELETE per block for nothing.
+                        skipped += 1
+                        continue
                     _request(client, "PATCH", f"/pages/{page_id}", json={"properties": props})
                     _clear_children(client, page_id)
                     _append_children(client, page_id, blocks)
@@ -335,16 +386,16 @@ def export_day(db: Any, user_id: str, day_key: str, tz: ZoneInfo) -> dict[str, A
                             "children": blocks[:BLOCK_LIMIT],
                         },
                     )
-                    page_id = created["id"]
                     if len(blocks) > BLOCK_LIMIT:
-                        _append_children(client, page_id, blocks[BLOCK_LIMIT:])
-                pages.append(page_id)
+                        _append_children(client, created["id"], blocks[BLOCK_LIMIT:])
+                written += 1
 
         return {
-            "status": "updated",
+            "status": "unchanged" if written == 0 else "updated",
             "day": day_key,
             "database": db_id,
-            "pages": len(pages),
+            "pages_written": written,
+            "pages_unchanged": skipped,
             "sessions": len(sessions),
         }
     except Exception as e:  # noqa: BLE001 — export must never break the caller
